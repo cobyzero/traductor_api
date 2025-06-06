@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify
 import numpy as np
-import cv2
 import tensorflow as tf
 from PIL import Image
 from io import BytesIO
@@ -24,4 +23,4 @@ def predict():
     return jsonify({'letter': letter})
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run()

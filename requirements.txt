@@ -1,7 +1,3 @@
 Flask==3.0.3
 numpy
-opencv-python
-mediapipe
 tensorflow
-scikit-learn
-pandas
