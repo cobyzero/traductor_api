@@ -244,8 +244,9 @@ processing_active = False
 
 def get_camera():
     global camera
-    if camera is None or camera.stopped:
-        camera = Camera().start()
+    if not hasattr(camera, 'stopped') or camera.stopped:
+        camera = Camera()
+        camera.start()
     return camera
 
 app = Flask(__name__)
