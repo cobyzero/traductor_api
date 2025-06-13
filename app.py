@@ -224,6 +224,10 @@ CONFIDENCE_THRESHOLD = 0.8  # Umbral de confianza mínimo
 MIN_FRAMES = 5  # Mínimo de frames para confirmar una letra
 
 def preprocess(frame):
+    # Asegurarse de que la imagen tenga 3 canales (por si es en escala de grises)
+    if len(frame.shape) == 2:
+        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+    
     # Convertir a escala de grises
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
@@ -231,17 +235,23 @@ def preprocess(frame):
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     
     # Aplicar umbral adaptativo
-    thresh = cv2.adaptiveThreshold(blurred, 255, 
-                                 cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                 cv2.THRESH_BINARY_INV, 11, 2)
+    thresh = cv2.adaptiveThreshold(
+        blurred, 255, 
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+        cv2.THRESH_BINARY_INV, 
+        11, 2
+    )
     
     # Encontrar contornos
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, 
-                                 cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(
+        thresh, 
+        cv2.RETR_EXTERNAL, 
+        cv2.CHAIN_APPROX_SIMPLE
+    )
     
     # Si no hay contornos, devolver una imagen en blanco
     if not contours:
-        return np.zeros((1, 28, 28, 1))
+        return np.zeros((28, 28, 1), dtype=np.float32)
     
     # Encontrar el contorno más grande
     largest_contour = max(contours, key=cv2.contourArea)
@@ -255,13 +265,22 @@ def preprocess(frame):
     # Obtener ROI y redimensionar a 28x28
     roi = gray[y:y+size, x:x+size]
     if roi.size == 0:
-        return np.zeros((1, 28, 28, 1))
+        return np.zeros((28, 28, 1), dtype=np.float32)
     
+    # Redimensionar a 28x28 y normalizar a [0, 1]
     resized = cv2.resize(roi, (28, 28), interpolation=cv2.INTER_AREA)
     
-    # Normalizar
-    normalized = resized / 255.0
-    return normalized.reshape(1, 28, 28, 1)
+    # Asegurar que los valores estén en el rango [0, 1]
+    normalized = resized.astype(np.float32) / 255.0
+    
+    # Añadir dimensión del canal si es necesario
+    if len(normalized.shape) == 2:
+        normalized = np.expand_dims(normalized, axis=-1)
+    
+    return normalized
+    
+    # La función ya devuelve el valor normalizado
+    pass
 
 def generate_frames():
     global history, last_letter, letter_count
@@ -452,10 +471,19 @@ def process_image(image_path):
         confidence = 0.0
         
         if model is not None:
-            # Realizar la predicción
-            prediction = model.predict(np.expand_dims(model_input, axis=0))[0]
-            predicted_class = np.argmax(prediction)
-            confidence = float(prediction[predicted_class])
+            try:
+                # Asegurarse de que la entrada tenga la forma correcta (batch_size, 28, 28, 1)
+                if len(model_input.shape) == 3:
+                    model_input = np.expand_dims(model_input, axis=0)
+                
+                # Realizar la predicción
+                prediction = model.predict(model_input)[0]
+                predicted_class = np.argmax(prediction)
+                confidence = float(prediction[predicted_class])
+            except Exception as e:
+                logger.error(f"Error en la predicción del modelo: {str(e)}")
+                confidence = 0.0
+                predicted_class = -1
             
             # Mapear la clase predicha a la letra correspondiente
             # Asumiendo que las letras están en orden alfabético (A=0, B=1, ..., Z=25)
