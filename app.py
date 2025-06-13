@@ -366,7 +366,7 @@ def generate_frames():
             if processing_active:
                 # Procesar el frame con MediaPipe si está disponible
                 if MEDIAPIPE_AVAILABLE and hasattr(cam, 'hand_detector') and cam.hand_detector is not None:
-                    frame, _ = cam.hand_detector.process(frame)
+                    frame = cam.hand_detector.process(frame)
                     
                 # Si hay un modelo cargado, hacer la predicción
                 if model is not None:
