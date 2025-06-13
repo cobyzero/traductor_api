@@ -1,4 +1,4 @@
 Flask==3.0.3
 numpy
 tensorflow
-cv2
+opencv-python
