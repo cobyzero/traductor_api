@@ -1,637 +1,234 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cámara en Tiempo Real - Traductor de Lenguaje de Señas</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <style>
-        body {
-            background-color: #f8f9fa;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-        .header {
-            background: linear-gradient(135deg, #28a745, #20c997);
-            color: white;
-            padding: 1.5rem 0;
-            margin-bottom: 2rem;
-        }
-        .camera-container {
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-            overflow: hidden;
-            margin-bottom: 2rem;
-        }
-        .video-wrapper {
-            position: relative;
-            width: 100%;
-            padding-top: 56.25%; /* 16:9 Aspect Ratio */
-            background-color: #000;
-        }
-        #videoFeed {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-        }
-        .status-indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 6px;
-        }
-        .status-indicator.connected {
-            background-color: #28a745;
-            box-shadow: 0 0 10px #28a745;
-        }
-        .status-indicator.connecting {
-            background-color: #ffc107;
-            box-shadow: 0 0 10px #ffc107;
-        }
-        .status-indicator.disconnected {
-            background-color: #dc3545;
-            box-shadow: 0 0 10px #dc3545;
-        }
-        .history-box {
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 1.5rem;
-            height: 100%;
-            overflow-y: auto;
-            max-height: 400px;
-        }
-        .history-item {
-            display: inline-block;
-            margin: 0.25rem;
-            padding: 0.5rem 1rem;
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        .current-letter {
-            font-size: 5rem;
-            font-weight: bold;
-            text-align: center;
-            margin: 1rem 0;
-            min-height: 120px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #f8f9fa;
-            border-radius: 10px;
-        }
-        .confidence-bar {
-            height: 20px;
-            border-radius: 10px;
-            margin: 1rem 0;
-            overflow: hidden;
-            background: #e9ecef;
-        }
-        .confidence-level {
-            height: 100%;
-            width: 0%;
-            background: #28a745;
-            transition: width 0.3s ease;
-        }
-        .back-btn {
-            position: absolute;
-            top: 1.5rem;
-            left: 1.5rem;
-        }
-        .controls {
-            padding: 1rem;
-            background: #f8f9fa;
-            border-top: 1px solid #eee;
-        }
-    </style>
-</head>
-<body>
-    <!-- Header -->
-    <header class="header">
-        <div class="container">
-            <div class="row">
-                <div class="col-12 text-center position-relative">
-                    <a href="/" class="btn btn-outline-light back-btn">
-                        <i class="fas fa-arrow-left"></i> Volver
-                    </a>
-                    <h1 class="h3 mb-0">Cámara en Tiempo Real</h1>
-                    <div id="connectionStatus">
-                        <span class="status-indicator connecting"></span>
-                        <span>Conectando a la cámara...</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </header>
+{% extends "base.html" %}
 
-    <!-- Main Content -->
-    <div class="container">
-        <div class="row">
-            <!-- Columna de la cámara -->
-            <div class="col-lg-8">
-                <div class="camera-container">
-                    <div class="video-wrapper">
-                        <img id="videoFeed" src="" alt="Transmisión en vivo">
-                    </div>
-                    <div class="controls text-center p-3">
-                        <div class="btn-group" role="group">
-                            <button id="startCameraBtn" class="btn btn-success">
-                                <i class="fas fa-play me-2"></i>Iniciar Cámara
-                            </button>
-                            <button id="stopCameraBtn" class="btn btn-danger" disabled>
-                                <i class="fas fa-stop me-2"></i>Detener
-                            </button>
-                        </div>
-                    </div>
+{% block title %}Reconocimiento de Señas{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 mx-auto">
+            <div class="card">
+                <div class="card-header">
+                    <h4 class="mb-0">Reconocimiento de Lenguaje de Señas</h4>
                 </div>
-                
-                <!-- Estado del sistema -->
-                <div class="row mb-4">
-                    <div class="col-md-4">
-                        <div class="card h-100">
-                            <div class="card-body text-center">
-                                <h6 class="card-title">Estado de la Cámara</h6>
-                                <div id="cameraStatus">
-                                    <span class="badge bg-warning">Inactiva</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="card h-100">
-                            <div class="card-body text-center">
-                                <h6 class="card-title">Detección de Manos</h6>
-                                <div id="handStatus">
-                                    <span class="badge bg-secondary">No detectado</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="card h-100">
-                            <div class="card-body text-center">
-                                <h6 class="card-title">Rendimiento</h6>
-                                <div id="fpsCounter">0 FPS</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Columna de resultados -->
-            <div class="col-lg-4">
-                <div class="card mb-4">
-                    <div class="card-header bg-primary text-white">
-                        <h5 class="card-title mb-0">Letra Detectada</h5>
-                    </div>
-                    <div class="card-body text-center">
-                        <div id="currentLetter" class="current-letter mb-3">-</div>
-                        <div class="mb-2">
-                            <span id="confidenceText">Confianza: 0%</span>
-                        </div>
-                        <div class="confidence-bar">
-                            <div id="confidenceBar" class="confidence-level"></div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h5 class="mb-0">Historial de Letras</h5>
-                        <div class="btn-group">
-                            <button id="clearHistoryBtn" class="btn btn-sm btn-outline-danger">
-                                <i class="fas fa-trash-alt me-1"></i> Limpiar
-                            </button>
-                            <button id="copyHistoryBtn" class="btn btn-sm btn-outline-primary">
-                                <i class="fas fa-copy me-1"></i> Copiar
+                <div class="card-body">
+                    <!-- Contenedor de la cámara -->
+                    <div class="camera-container mb-3" style="position: relative; width: 100%; padding-top: 75%; background-color: #f8f9fa; border-radius: 4px; overflow: hidden;">
+                        <video id="video" autoplay playsinline style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;"></video>
+                        <div id="startButton" class="text-center" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);">
+                            <button class="btn btn-primary btn-lg">
+                                <i class="fas fa-camera"></i> Activar Cámara
                             </button>
                         </div>
+                        <canvas id="canvas" style="display: none;"></canvas>
+                        <div id="result" class="text-center mt-2"></div>
                     </div>
-                    <div class="d-flex justify-content-center mb-3">
-                        <button id="startProcessingBtn" class="btn btn-success me-2">
-                            <i class="fas fa-play me-1"></i> Iniciar Reconocimiento
+                    
+                    <!-- Controles -->
+                    <div class="controls text-center mt-3">
+                        <button id="captureButton" class="btn btn-success" disabled>
+                            <i class="fas fa-camera"></i> Capturar Foto
                         </button>
-                        <button id="stopProcessingBtn" class="btn btn-danger" disabled>
-                            <i class="fas fa-stop me-1"></i> Detener Reconocimiento
+                        <button id="changeCamera" class="btn btn-secondary ml-2" style="display: none;">
+                            <i class="fas fa-sync-alt"></i> Cambiar Cámara
                         </button>
+                        <div class="form-check form-switch d-inline-block ml-3">
+                            <input class="form-check-input" type="checkbox" id="autoCaptureSwitch">
+                            <label class="form-check-label" for="autoCaptureSwitch">Captura automática</label>
+                        </div>
                     </div>
-                    <div class="card-body p-0">
-                        <div id="historyBox" class="history-box">
-                            <div class="text-center text-muted p-4">
-                                <i class="fas fa-hand-paper fa-3x mb-3"></i>
-                                <p class="mb-0">Las letras detectadas aparecerán aquí</p>
-                            </div>
+                    
+                    <!-- Resultados -->
+                    <div id="results" class="mt-4">
+                        <h5>Resultados:</h5>
+                        <div id="predictions" class="list-group">
+                            <!-- Aquí se mostrarán los resultados -->
                         </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
+</div>
+{% endblock %}
 
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        $(document).ready(function() {
-            // Elementos del DOM
-            const videoFeed = document.getElementById('videoFeed');
-            const startCameraBtn = document.getElementById('startCameraBtn');
-            const stopCameraBtn = document.getElementById('stopCameraBtn');
-            const startProcessingBtn = document.getElementById('startProcessingBtn');
-            const stopProcessingBtn = document.getElementById('stopProcessingBtn');
-            let isProcessing = false;
-            const currentLetterEl = document.getElementById('currentLetter');
-            const confidenceBar = document.getElementById('confidenceBar');
-            const confidenceText = document.getElementById('confidenceText');
-            const historyBox = document.getElementById('historyBox');
-            const clearHistoryBtn = document.getElementById('clearHistoryBtn');
-            const copyHistoryBtn = document.getElementById('copyHistoryBtn');
-            const connectionStatus = document.getElementById('connectionStatus');
-            const cameraStatus = document.getElementById('cameraStatus');
-            const handStatus = document.getElementById('handStatus');
-            const fpsCounter = document.getElementById('fpsCounter');
-            
-            // Variables de estado
-            let isStreaming = false;
-            let reconnectAttempts = 0;
-            const maxReconnectAttempts = 5;
-            let frameCount = 0;
-            let lastFpsUpdate = Date.now();
-            let currentFps = 0;
-            let history = [];
-            
-            // Inicializar la cámara
-            function startCamera() {
-                if (isStreaming) return;
-                
-                // Mostrar estado de conexión
-                updateConnectionStatus('connecting');
-                
-                // Establecer la fuente del video
-                videoFeed.src = '/video_feed';
-                
-                videoFeed.onloadstart = function() {
-                    console.log('Cargando transmisión de video...');
-                };
-                
-                videoFeed.onerror = function() {
-                    console.error('Error al cargar el video');
-                    handleStreamError();
-                };
-                
-                videoFeed.onloadeddata = function() {
-                    console.log('Transmisión de video cargada');
-                    isStreaming = true;
-                    updateConnectionStatus('connected');
-                    updateCameraStatus('active');
-                    startFpsCounter();
-                    updateHistory();
-                    
-                    // Habilitar/deshabilitar botones
-                    startCameraBtn.disabled = true;
-                    stopCameraBtn.disabled = false;
-                };
-                
-                // Actualizar FPS periódicamente
-                function startFpsCounter() {
-                    frameCount = 0;
-                    lastFpsUpdate = Date.now();
-                    
-                    function updateFps() {
-                        if (!isStreaming) return;
-                        
-                        const now = Date.now();
-                        const delta = now - lastFpsUpdate;
-                        
-                        if (delta >= 1000) {
-                            currentFps = Math.round((frameCount * 1000) / delta);
-                            fpsCounter.textContent = `${currentFps} FPS`;
-                            frameCount = 0;
-                            lastFpsUpdate = now;
-                        }
-                        
-                        frameCount++;
-                        requestAnimationFrame(updateFps);
-                    }
-                    
-                    updateFps();
-                }
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Elementos del DOM
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const captureButton = document.getElementById('captureButton');
+    const startButton = document.getElementById('startButton');
+    const changeCameraButton = document.getElementById('changeCamera');
+    const autoCaptureSwitch = document.getElementById('autoCaptureSwitch');
+    const predictionsContainer = document.getElementById('predictions');
+    
+    let stream = null;
+    let currentFacingMode = 'user'; // Por defecto cámara frontal
+    let autoCaptureInterval = null;
+    
+    // Iniciar cámara
+    async function startCamera(facingMode = 'user') {
+        try {
+            // Detener el stream actual si existe
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
             }
             
-            // Detener la cámara
-            function stopCamera() {
-                if (!isStreaming) return;
-                
-                // Detener la transmisión
-                videoFeed.src = '';
-                isStreaming = false;
-                
-                // Actualizar estado
-                updateConnectionStatus('disconnected');
-                updateCameraStatus('inactive');
-                updateHandStatus('not_detected');
-                
-                // Habilitar/deshabilitar botones
-                startCameraBtn.disabled = false;
-                stopCameraBtn.disabled = true;
-                
-                // Detener la actualización del historial
-                clearTimeout(historyUpdateTimeout);
-            }
-            
-            // Manejar errores de la transmisión
-            function handleStreamError() {
-                if (reconnectAttempts < maxReconnectAttempts) {
-                    reconnectAttempts++;
-                    const delay = Math.min(1000 * reconnectAttempts, 5000); // Retroceso exponencial hasta 5 segundos
-                    
-                    updateConnectionStatus('reconnecting', `Reintentando conexión (${reconnectAttempts}/${maxReconnectAttempts})...`);
-                    
-                    setTimeout(() => {
-                        console.log(`Reintentando conexión (${reconnectAttempts}/${maxReconnectAttempts})...`);
-                        startCamera();
-                    }, delay);
-                } else {
-                    updateConnectionStatus('error', 'No se pudo conectar a la cámara. Recarga la página para intentar de nuevo.');
-                    startCameraBtn.disabled = false;
-                    stopCameraBtn.disabled = true;
-                }
-            }
-            
-            // Actualizar estado de conexión
-            function updateConnectionStatus(status, message = '') {
-                const statusIndicator = connectionStatus.querySelector('.status-indicator');
-                let statusText = '';
-                
-                statusIndicator.className = 'status-indicator';
-                
-                switch (status) {
-                    case 'connected':
-                        statusIndicator.classList.add('connected');
-                        statusText = 'Conectado';
-                        break;
-                    case 'connecting':
-                    case 'reconnecting':
-                        statusIndicator.classList.add('connecting');
-                        statusText = message || 'Conectando...';
-                        break;
-                    case 'disconnected':
-                        statusIndicator.classList.add('disconnected');
-                        statusText = 'Desconectado';
-                        break;
-                    case 'error':
-                        statusIndicator.classList.add('disconnected');
-                        statusText = message || 'Error de conexión';
-                        break;
-                }
-                
-                connectionStatus.innerHTML = `
-                    <span class="status-indicator ${status === 'connected' ? 'connected' : status === 'connecting' || status === 'reconnecting' ? 'connecting' : 'disconnected'}"></span>
-                    <span>${statusText}</span>
-                `;
-            }
-            
-            // Actualizar estado de la cámara
-            function updateCameraStatus(status) {
-                let statusHtml = '';
-                
-                switch (status) {
-                    case 'active':
-                        statusHtml = '<span class="badge bg-success">Activa</span>';
-                        break;
-                    case 'inactive':
-                        statusHtml = '<span class="badge bg-secondary">Inactiva</span>';
-                        break;
-                    case 'error':
-                        statusHtml = '<span class="badge bg-danger">Error</span>';
-                        break;
-                }
-                
-                cameraStatus.innerHTML = statusHtml;
-            }
-            
-            // Actualizar estado de detección de manos
-            function updateHandStatus(status) {
-                let statusHtml = '';
-                
-                switch (status) {
-                    case 'detected':
-                        statusHtml = '<span class="badge bg-success">Detectadas</span>';
-                        break;
-                    case 'not_detected':
-                        statusHtml = '<span class="badge bg-secondary">No detectadas</span>';
-                        break;
-                    case 'error':
-                        statusHtml = '<span class="badge bg-danger">Error</span>';
-                        break;
-                }
-                
-                handStatus.innerHTML = statusHtml;
-            }
-            
-            // Actualizar el historial
-            let historyUpdateTimeout;
-            
-            function updateHistory() {
-                if (!isStreaming) return;
-                
-                fetch('/history')
-                    .then(response => {
-                        if (!response.ok) throw new Error('Error en la respuesta');
-                        return response.json();
-                    })
-                    .then(data => {
-                        // Actualizar letra actual
-                        if (data.current_letter) {
-                            currentLetterEl.textContent = data.current_letter.letter;
-                            const confidence = Math.round(data.current_letter.confidence * 100);
-                            confidenceBar.style.width = `${confidence}%`;
-                            confidenceText.textContent = `Confianza: ${confidence}%`;
-                            
-                            // Cambiar color según la confianza
-                            if (confidence > 70) {
-                                confidenceBar.className = 'confidence-level bg-success';
-                            } else if (confidence > 40) {
-                                confidenceBar.className = 'confidence-level bg-warning';
-                            } else {
-                                confidenceBar.className = 'confidence-level bg-danger';
-                            }
-                            
-                            // Actualizar estado de detección de manos
-                            if (data.hand_detected) {
-                                updateHandStatus('detected');
-                            } else {
-                                updateHandStatus('not_detected');
-                            }
-                        }
-                        
-                        // Actualizar historial si hay cambios
-                        if (data.history && data.history.length > 0) {
-                            // Solo actualizar si hay cambios
-                            if (JSON.stringify(history) !== JSON.stringify(data.history)) {
-                                history = data.history;
-                                renderHistory(history);
-                            }
-                        } else {
-                            historyBox.innerHTML = `
-                                <div class="text-center text-muted p-4">
-                                    <i class="fas fa-hand-paper fa-3x mb-3"></i>
-                                    <p class="mb-0">Las letras detectadas aparecerán aquí</p>
-                                </div>
-                            `;
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error al actualizar el historial:', error);
-                        updateConnectionStatus('error', 'Error de conexión con el servidor');
-                    })
-                    .finally(() => {
-                        // Programar la próxima actualización
-                        if (isStreaming) {
-                            historyUpdateTimeout = setTimeout(updateHistory, 500);
-                        }
-                    });
-            }
-            
-            // Renderizar el historial
-            function renderHistory(historyData) {
-                if (!historyData || historyData.length === 0) {
-                    historyBox.innerHTML = `
-                        <div class="text-center text-muted p-4">
-                            <i class="fas fa-hand-paper fa-3x mb-3"></i>
-                            <p class="mb-0">Las letras detectadas aparecerán aquí</p>
-                        </div>
-                    `;
-                    return;
-                }
-                
-                // Mostrar solo las últimas 20 entradas
-                const recentHistory = historyData.slice(-20);
-                
-                historyBox.innerHTML = recentHistory.map((item, index) => {
-                    const isLatest = index === historyData.length - 1;
-                    const confidence = Math.round(item.confidence * 100);
-                    
-                    return `
-                        <div class="history-item ${isLatest ? 'bg-primary text-white' : 'bg-light'}">
-                            <span class="me-2">${item.letter}</span>
-                            <small class="opacity-75">${confidence}%</small>
-                        </div>
-                    `;
-                }).join('');
-                
-                // Desplazarse al final
-                historyBox.scrollTop = historyBox.scrollHeight;
-            }
-            
-            // Limpiar historial
-            function clearHistory() {
-                if (confirm('¿Estás seguro de que quieres borrar el historial?')) {
-                    fetch('/clear_history', { method: 'POST' })
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.success) {
-                                history = [];
-                                renderHistory([]);
-                            }
-                        });
-                }
-            }
-            
-            // Copiar historial al portapapeles
-            function copyHistoryToClipboard() {
-                if (history.length === 0) {
-                    alert('No hay historial para copiar');
-                    return;
-                }
-                
-                const textToCopy = history.map(item => item.letter).join('');
-                
-                navigator.clipboard.writeText(textToCopy)
-                    .then(() => {
-                        // Mostrar notificación de éxito
-                        const originalText = copyHistoryBtn.innerHTML;
-                        copyHistoryBtn.innerHTML = '<i class="fas fa-check"></i>';
-                        
-                        setTimeout(() => {
-                            copyHistoryBtn.innerHTML = originalText;
-                        }, 2000);
-                    })
-                    .catch(err => {
-                        console.error('Error al copiar al portapapeles:', err);
-                        alert('No se pudo copiar al portapapeles');
-                    });
-            }
-            
-            // Función para iniciar el procesamiento
-            async function startProcessing() {
-                try {
-                    const response = await fetch('/start_processing', { method: 'POST' });
-                    const data = await response.json();
-                    if (data.status === 'processing_started') {
-                        isProcessing = true;
-                        startProcessingBtn.disabled = true;
-                        stopProcessingBtn.disabled = false;
-                        updateProcessingStatus(true);
-                    }
-                } catch (error) {
-                    console.error('Error al iniciar el procesamiento:', error);
-                    alert('Error al iniciar el procesamiento');
-                }
-            }
-
-            // Función para detener el procesamiento
-            async function stopProcessing() {
-                try {
-                    const response = await fetch('/stop_processing', { method: 'POST' });
-                    const data = await response.json();
-                    if (data.status === 'processing_stopped') {
-                        isProcessing = false;
-                        startProcessingBtn.disabled = false;
-                        stopProcessingBtn.disabled = true;
-                        updateProcessingStatus(false);
-                    }
-                } catch (error) {
-                    console.error('Error al detener el procesamiento:', error);
-                    alert('Error al detener el procesamiento');
-                }
-            }
-
-            // Actualizar la interfaz según el estado del procesamiento
-            function updateProcessingStatus(active) {
-                const statusElement = document.getElementById('processingStatus');
-                if (statusElement) {
-                    statusElement.textContent = active ? 'Activo' : 'Inactivo';
-                    statusElement.className = `badge bg-${active ? 'success' : 'secondary'}`;
-                }
-            }
-
-            // Event Listeners
-            startCameraBtn.addEventListener('click', startCamera);
-            stopCameraBtn.addEventListener('click', stopCamera);
-            startProcessingBtn.addEventListener('click', startProcessing);
-            stopProcessingBtn.addEventListener('click', stopProcessing);
-            clearHistoryBtn.addEventListener('click', clearHistory);
-            copyHistoryBtn.addEventListener('click', copyHistoryToClipboard);
-            
-            // Inicializar el estado de los botones
-            updateProcessingStatus(false);
-            
-            // Iniciar la cámara automáticamente al cargar la página
-            startCamera();
-            
-            // Detener la cámara al cerrar la pestaña
-            window.addEventListener('beforeunload', () => {
-                stopCamera();
+            // Obtener acceso a la cámara
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: { 
+                    facingMode: { exact: facingMode },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                },
+                audio: false
             });
+            
+            video.srcObject = stream;
+            video.play();
+            
+            // Configurar canvas con las dimensiones del video
+            video.addEventListener('loadedmetadata', () => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+            });
+            
+            // Mostrar controles
+            startButton.style.display = 'none';
+            captureButton.disabled = false;
+            changeCameraButton.style.display = 'inline-block';
+            
+            // Iniciar captura automática si está activada
+            if (autoCaptureSwitch.checked) {
+                startAutoCapture();
+            }
+            
+        } catch (err) {
+            console.error('Error al acceder a la cámara:', err);
+            alert('No se pudo acceder a la cámara. Asegúrate de haber otorgado los permisos necesarios.');
+        }
+    }
+    
+    // Detener cámara
+    function stopCamera() {
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+            stream = null;
+        }
+        startButton.style.display = 'block';
+        captureButton.disabled = true;
+        changeCameraButton.style.display = 'none';
+        stopAutoCapture();
+    }
+    
+    // Capturar imagen
+    async function captureImage() {
+        if (!stream) return;
+        
+        // Dibujar el frame actual en el canvas
+        const context = canvas.getContext('2d');
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Obtener la imagen como blob
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+        
+        // Crear formulario para enviar la imagen
+        const formData = new FormData();
+        formData.append('image', blob, 'capture.jpg');
+        
+        try {
+            // Enviar imagen al servidor
+            const response = await fetch('/api/process-image', {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (!response.ok) {
+                throw new Error('Error al procesar la imagen');
+            }
+            
+            const result = await response.json();
+            
+            // Mostrar resultados
+            displayResults(result);
+            
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error al procesar la imagen. Por favor, inténtalo de nuevo.');
+        }
+    }
+    
+    // Mostrar resultados
+    function displayResults(data) {
+        if (!data || !data.result) {
+            predictionsContainer.innerHTML = '<div class="alert alert-warning">No se pudo procesar la imagen</div>';
+            return;
+        }
+        
+        // Ordenar resultados por confianza (de mayor a menor)
+        const sortedResults = Object.entries(data.result)
+            .sort(([, a], [, b]) => b - a)
+            .slice(0, 5); // Mostrar solo las 5 mejores predicciones
+        
+        let html = '<div class="list-group">';
+        
+        sortedResults.forEach(([letter, confidence]) => {
+            const percentage = (confidence * 100).toFixed(2);
+            html += `
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                    <span class="h4 mb-0">${letter}</span>
+                    <div class="progress flex-grow-1 mx-3" style="height: 30px;">
+                        <div class="progress-bar" role="progressbar" 
+                             style="width: ${percentage}%" 
+                             aria-valuenow="${percentage}" 
+                             aria-valuemin="0" 
+                             aria-valuemax="100">
+                            ${percentage}%
+                        </div>
+                    </div>
+                </div>`;
         });
-    </script>
-</body>
-</html>
+        
+        html += '</div>';
+        predictionsContainer.innerHTML = html;
+    }
+    
+    // Captura automática
+    function startAutoCapture() {
+        stopAutoCapture(); // Detener cualquier intervalo existente
+        autoCaptureInterval = setInterval(captureImage, 2000); // Capturar cada 2 segundos
+    }
+    
+    function stopAutoCapture() {
+        if (autoCaptureInterval) {
+            clearInterval(autoCaptureInterval);
+            autoCaptureInterval = null;
+        }
+    }
+    
+    // Event Listeners
+    startButton.addEventListener('click', () => startCamera(currentFacingMode));
+    captureButton.addEventListener('click', captureImage);
+    
+    changeCameraButton.addEventListener('click', () => {
+        currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+        startCamera(currentFacingMode);
+    });
+    
+    autoCaptureSwitch.addEventListener('change', (e) => {
+        if (e.target.checked) {
+            startAutoCapture();
+        } else {
+            stopAutoCapture();
+        }
+    });
+    
+    // Limpiar al cerrar la página
+    window.addEventListener('beforeunload', () => {
+        stopCamera();
+        stopAutoCapture();
+    });
+});
+</script>
+{% endblock %}
