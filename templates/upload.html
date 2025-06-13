@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subir Imagen - Traductor de Lenguaje de Señas</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .header {
+            background: linear-gradient(135deg, #28a745, #20c997);
+            color: white;
+            padding: 1.5rem 0;
+            margin-bottom: 2rem;
+        }
+        .upload-container {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        .preview-container {
+            border: 2px dashed #dee2e6;
+            border-radius: 10px;
+            padding: 2rem;
+            text-align: center;
+            margin-bottom: 1.5rem;
+            min-height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #f8f9fa;
+            position: relative;
+            overflow: hidden;
+        }
+        .preview-container img {
+            max-width: 100%;
+            max-height: 400px;
+            display: none;
+        }
+        .preview-placeholder {
+            color: #6c757d;
+        }
+        .result-container {
+            display: none;
+            margin-top: 2rem;
+            padding: 1.5rem;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+        }
+        .btn-upload {
+            padding: 0.75rem 2rem;
+            border-radius: 50px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.3s;
+        }
+        .back-btn {
+            position: absolute;
+            top: 1.5rem;
+            left: 1.5rem;
+        }
+        .confidence-bar {
+            height: 25px;
+            border-radius: 5px;
+            transition: width 0.6s ease;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="row">
+                <div class="col-12 text-center position-relative">
+                    <a href="/" class="btn btn-outline-light back-btn">
+                        <i class="fas fa-arrow-left"></i> Volver
+                    </a>
+                    <h1 class="h3 mb-0">Subir Imagen</h1>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="upload-container">
+                    <div class="text-center mb-4">
+                        <i class="fas fa-upload fa-3x text-primary mb-3"></i>
+                        <h2>Sube una imagen</h2>
+                        <p class="text-muted">Sube una imagen con lenguaje de señas para traducirla</p>
+                    </div>
+
+                    <!-- Formulario de carga -->
+                    <form id="uploadForm" enctype="multipart/form-data">
+                        <div class="preview-container" id="previewContainer">
+                            <div class="preview-placeholder" id="previewPlaceholder">
+                                <i class="fas fa-image fa-4x mb-3"></i>
+                                <p class="mb-0">Arrastra una imagen aquí o haz clic para seleccionar</p>
+                                <small class="text-muted">Formatos soportados: JPG, PNG, WEBP</small>
+                            </div>
+                            <img id="imagePreview" alt="Vista previa de la imagen">
+                        </div>
+
+                        <div class="text-center">
+                            <input type="file" id="fileInput" name="file" accept="image/*" class="d-none" required>
+                            <button type="button" id="selectFileBtn" class="btn btn-primary btn-upload mb-3">
+                                <i class="fas fa-folder-open me-2"></i> Seleccionar Imagen
+                            </button>
+                            <button type="submit" id="uploadBtn" class="btn btn-success btn-upload d-none">
+                                <i class="fas fa-search me-2"></i> Analizar Imagen
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Resultados -->
+                    <div class="result-container" id="resultContainer">
+                        <h4 class="mb-3">Resultado del Análisis</h4>
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>Letra detectada:</span>
+                                <strong id="detectedLetter">-</strong>
+                            </div>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span>Confianza:</span>
+                                <span id="confidenceValue">0%</span>
+                            </div>
+                            <div class="progress" style="height: 10px;">
+                                <div id="confidenceBar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        <button id="tryAgainBtn" class="btn btn-outline-primary w-100 mt-3">
+                            <i class="fas fa-redo me-2"></i> Probar con otra imagen
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            const fileInput = $('#fileInput');
+            const previewContainer = $('#previewContainer');
+            const previewPlaceholder = $('#previewPlaceholder');
+            const imagePreview = $('#imagePreview')[0];
+            const uploadForm = $('#uploadForm');
+            const uploadBtn = $('#uploadBtn');
+            const selectFileBtn = $('#selectFileBtn');
+            const resultContainer = $('#resultContainer');
+            const detectedLetter = $('#detectedLetter');
+            const confidenceValue = $('#confidenceValue');
+            const confidenceBar = $('#confidenceBar');
+            const tryAgainBtn = $('#tryAgainBtn');
+
+            // Manejar clic en el botón de selección de archivo
+            selectFileBtn.on('click', function() {
+                fileInput.click();
+            });
+
+            // Manejar arrastrar y soltar
+            previewContainer.on('dragover', function(e) {
+                e.preventDefault();
+                previewContainer.addClass('border-primary');
+                previewContainer.css('background-color', '#f1f8ff');
+            });
+
+            previewContainer.on('dragleave', function() {
+                previewContainer.removeClass('border-primary');
+                previewContainer.css('background-color', '');
+            });
+
+            previewContainer.on('drop', function(e) {
+                e.preventDefault();
+                previewContainer.removeClass('border-primary');
+                previewContainer.css('background-color', '');
+                
+                if (e.originalEvent.dataTransfer.files.length) {
+                    fileInput[0].files = e.originalEvent.dataTransfer.files;
+                    handleFileSelect(e.originalEvent);
+                }
+            });
+
+            // Manejar selección de archivo
+            fileInput.on('change', handleFileSelect);
+
+            function handleFileSelect(event) {
+                const file = event.target.files ? event.target.files[0] : (event.dataTransfer ? event.dataTransfer.files[0] : null);
+                
+                if (file) {
+                    if (!file.type.match('image.*')) {
+                        alert('Por favor, selecciona un archivo de imagen válido.');
+                        return;
+                    }
+
+                    const reader = new FileReader();
+                    
+                    reader.onload = function(e) {
+                        imagePreview.src = e.target.result;
+                        imagePreview.style.display = 'block';
+                        previewPlaceholder.hide();
+                        uploadBtn.removeClass('d-none');
+                    };
+                    
+                    reader.readAsDataURL(file);
+                }
+            }
+
+            // Manejar envío del formulario
+            uploadForm.on('submit', function(e) {
+                e.preventDefault();
+                
+                const formData = new FormData(this);
+                
+                // Mostrar carga
+                uploadBtn.prop('disabled', true);
+                uploadBtn.html('<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Analizando...');
+                
+                // Enviar la imagen al servidor
+                $.ajax({
+                    url: '/upload',
+                    type: 'POST',
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function(response) {
+                        if (response.error) {
+                            alert('Error: ' + response.error);
+                            return;
+                        }
+                        
+                        // Mostrar resultados
+                        if (response.detected_letter) {
+                            detectedLetter.text(response.detected_letter);
+                            const confidence = Math.round(response.confidence * 100);
+                            confidenceValue.text(confidence + '%');
+                            confidenceBar.css('width', confidence + '%');
+                            
+                            // Cambiar color de la barra según la confianza
+                            if (confidence > 70) {
+                                confidenceBar.removeClass('bg-warning bg-danger').addClass('bg-success');
+                            } else if (confidence > 40) {
+                                confidenceBar.removeClass('bg-success bg-danger').addClass('bg-warning');
+                            } else {
+                                confidenceBar.removeClass('bg-success bg-warning').addClass('bg-danger');
+                            }
+                            
+                            resultContainer.slideDown();
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        console.error('Error:', error);
+                        alert('Ocurrió un error al procesar la imagen. Por favor, inténtalo de nuevo.');
+                    },
+                    complete: function() {
+                        uploadBtn.prop('disabled', false);
+                        uploadBtn.html('<i class="fas fa-search me-2"></i> Analizar Imagen');
+                    }
+                });
+            });
+
+            // Manejar botón de intentar de nuevo
+            tryAgainBtn.on('click', function() {
+                fileInput.val('');
+                previewPlaceholder.show();
+                imagePreview.style.display = 'none';
+                uploadBtn.addClass('d-none');
+                resultContainer.slideUp();
+            });
+        });
+    </script>
+</body>
+</html>

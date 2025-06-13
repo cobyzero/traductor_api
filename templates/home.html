@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traductor de Lenguaje de Señas</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .hero-section {
+            background: linear-gradient(135deg, #28a745, #20c997);
+            color: white;
+            padding: 4rem 0;
+            margin-bottom: 3rem;
+            text-align: center;
+        }
+        .card-option {
+            transition: transform 0.3s, box-shadow 0.3s;
+            border: none;
+            border-radius: 15px;
+            overflow: hidden;
+            margin-bottom: 2rem;
+            height: 100%;
+        }
+        .card-option:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+        .card-option .card-body {
+            padding: 2.5rem 1.5rem;
+            text-align: center;
+        }
+        .icon-wrapper {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 1.5rem;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            color: white;
+        }
+        .btn-option {
+            padding: 0.75rem 2rem;
+            border-radius: 50px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.3s;
+        }
+        footer {
+            margin-top: auto;
+            background-color: #f8f9fa;
+            padding: 2rem 0;
+            border-top: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <!-- Hero Section -->
+    <section class="hero-section">
+        <div class="container">
+            <div class="row justify-content-center">
+                <div class="col-lg-8 text-center">
+                    <h1 class="display-4 fw-bold mb-3">Traductor de Lenguaje de Señas</h1>
+                    <p class="lead mb-4">Selecciona una opción para comenzar a traducir el lenguaje de señas</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Options Section -->
+    <section class="options-section mb-5">
+        <div class="container">
+            <div class="row justify-content-center">
+                <!-- Opción 1: Cámara en Tiempo Real -->
+                <div class="col-md-5 mx-3">
+                    <div class="card card-option h-100">
+                        <div class="card-body">
+                            <div class="icon-wrapper bg-primary">
+                                <i class="fas fa-video"></i>
+                            </div>
+                            <h3 class="h4 mb-3">Cámara en Tiempo Real</h3>
+                            <p class="text-muted mb-4">Usa tu cámara para traducir el lenguaje de señas en tiempo real.</p>
+                            <a href="/camera" class="btn btn-primary btn-option">
+                                Iniciar Cámara <i class="fas fa-arrow-right ms-2"></i>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Opción 2: Subir Imagen -->
+                <div class="col-md-5 mx-3">
+                    <div class="card card-option h-100">
+                        <div class="card-body">
+                            <div class="icon-wrapper bg-success">
+                                <i class="fas fa-upload"></i>
+                            </div>
+                            <h3 class="h4 mb-3">Subir Imagen</h3>
+                            <p class="text-muted mb-4">Sube una imagen con lenguaje de señas para traducirla.</p>
+                            <a href="/upload" class="btn btn-success btn-option">
+                                Subir Imagen <i class="fas fa-arrow-right ms-2"></i>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="text-center text-muted">
+        <div class="container">
+            <p class="mb-0">© 2025 Traductor de Lenguaje de Señas. Todos los derechos reservados.</p>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

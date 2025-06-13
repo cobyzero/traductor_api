@@ -186,6 +186,11 @@ def get_camera():
     return camera
 
 app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = 'static/uploads'
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
+
+# Crear carpeta de subidas si no existe
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Cargar el modelo de reconocimiento de señas
 try:
@@ -199,7 +204,7 @@ except Exception as e:
 
 # Configuración de la cámara
 CAMERA_SOURCE = os.environ.get('CAMERA_SOURCE', '0')  # Por defecto cámara 0, puede ser una URL RTSP
-IS_VIRTUAL = os.environ.get('VIRTUAL_CAMERA', 'false').lower() == 'true'
+IS_VIRTUAL = os.environ.get('VIRTUAL_CAMERA', 'true').lower() == 'true'  # Por defecto modo virtual para evitar errores
 
 # Inicializar la cámara
 camera = Camera(
@@ -339,23 +344,92 @@ def generate_frames():
             logger.error(f"Error en generate_frames: {str(e)}")
             time.sleep(1)
 
+# Ruta para la página de inicio
 @app.route('/')
-def index():
-    return render_template('index.html', 
+def home():
+    return render_template('home.html')
+
+# Ruta para la cámara en tiempo real
+@app.route('/camera')
+def camera():
+    return render_template('camera.html', 
                          hand_detection=MEDIAPIPE_AVAILABLE,
                          model_loaded=model is not None,
                          camera_source=CAMERA_SOURCE if not IS_VIRTUAL else 'Virtual',
                          is_virtual=IS_VIRTUAL)
+
+# Ruta para subir imagen
+@app.route('/upload', methods=['GET', 'POST'])
+def upload_file():
+    if request.method == 'POST':
+        if 'file' not in request.files:
+            return jsonify({'error': 'No se ha seleccionado ningún archivo'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No se ha seleccionado ningún archivo'}), 400
+        
+        if file:
+            # Guardar el archivo
+            filename = os.path.join(app.config['UPLOAD_FOLDER'], 'temp.jpg')
+            file.save(filename)
+            
+            # Procesar la imagen
+            result = process_image(filename)
+            return jsonify(result)
+    
+    return render_template('upload.html')
 
 @app.route('/video')
 def video():
     return Response(generate_frames(), 
                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
+# Ruta para el feed de video
 @app.route('/video_feed')
 def video_feed():
     return Response(generate_frames(),
-                   mimetype='multipart/x-mixed-replace; boundary=frame')
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+# Función para procesar una imagen estática
+def process_image(image_path):
+    try:
+        # Leer la imagen
+        frame = cv2.imread(image_path)
+        if frame is None:
+            return {'error': 'No se pudo leer la imagen'}
+        
+        # Redimensionar manteniendo la relación de aspecto
+        height, width = frame.shape[:2]
+        max_size = 800
+        if height > width:
+            new_height = max_size
+            new_width = int(width * (max_size / height))
+        else:
+            new_width = max_size
+            new_height = int(height * (max_size / width))
+            
+        frame = cv2.resize(frame, (new_width, new_height))
+        
+        # Procesar con MediaPipe si está disponible
+        if MEDIAPIPE_AVAILABLE and hand_detector:
+            frame = hand_detector.process(frame)
+        
+        # Convertir a formato para mostrar en el navegador
+        _, buffer = cv2.imencode('.jpg', frame)
+        frame_bytes = buffer.tobytes()
+        
+        # Aquí podrías agregar el procesamiento del modelo de reconocimiento
+        # y devolver también la letra detectada y la confianza
+        
+        return {
+            'image': base64.b64encode(frame_bytes).decode('utf-8'),
+            'detected_letter': 'A',  # Ejemplo
+            'confidence': 0.95         # Ejemplo
+        }
+    except Exception as e:
+        logger.error(f"Error al procesar la imagen: {str(e)}")
+        return {'error': str(e)}
 
 @app.route('/history')
 def get_history():
