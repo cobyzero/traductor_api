@@ -47,7 +47,14 @@ def generate_frames():
 @app.route('/')
 def index():
     return render_template('index.html', history=' '.join(history[-30:]))
- 
+
+@app.route('/video')
+def video():
+    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/history')
+def get_history():
+    return jsonify({'history': ''.join(history[-30:])})
 
 if __name__ == '__main__':
     app.run()
