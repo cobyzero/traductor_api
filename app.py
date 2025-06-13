@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import tensorflow as tf
 from collections import deque
+import time
 
 app = Flask(__name__)
 model = tf.keras.models.load_model('model_mnist_asl.h5')
@@ -10,8 +11,16 @@ labels = [chr(i) for i in range(65, 91) if chr(i) not in ['J', 'Z']]
 
 # Configuración de la cámara
 cap = cv2.VideoCapture(0)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+# Verificar si la cámara se abrió correctamente
+if not cap.isOpened():
+    print("Error: No se pudo abrir la cámara")
+    exit()
+
+# Dar tiempo a la cámara para inicializarse
+time.sleep(2.0)
 
 # Historial de letras detectadas
 history = []
@@ -66,50 +75,64 @@ def generate_frames():
     while True:
         success, frame = cap.read()
         if not success:
+            print("Error: No se pudo capturar el frame de la cámara")
             break
             
-        # Voltear la imagen horizontalmente para una experiencia tipo espejo
-        frame = cv2.flip(frame, 1)
-        
-        # Preprocesar la imagen
-        input_img = preprocess(frame)
-        
-        # Realizar la predicción
-        pred = model.predict(input_img, verbose=0)[0]
-        predicted_idx = np.argmax(pred)
-        confidence = pred[predicted_idx]
-        letter = labels[predicted_idx]
-        
-        # Dibujar el ROI en el frame
-        height, width = frame.shape[:2]
-        size = min(height, width) // 2
-        x = (width - size) // 2
-        y = (height - size) // 2
-        cv2.rectangle(frame, (x, y), (x + size, y + size), (0, 255, 0), 2)
-        
-        # Mostrar la letra predicha y la confianza
-        text = f'Letra: {letter} ({confidence*100:.1f}%)'
-        cv2.putText(frame, text, (10, 40),
-                   cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
-        
-        # Lógica para confirmar la letra
-        if confidence > CONFIDENCE_THRESHOLD:
-            if letter == last_letter:
-                letter_count += 1
-                if letter_count == MIN_FRAMES and (not history or history[-1] != letter):
-                    history.append(letter)
-                    if len(history) > 50:  # Limitar el tamaño del historial
-                        history.pop(0)
-            else:
-                last_letter = letter
-                letter_count = 1
-        
-        # Codificar el frame para la transmisión
-        _, buffer = cv2.imencode('.jpg', frame)
-        frame = buffer.tobytes()
-
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+        try:
+            # Voltear la imagen horizontalmente para una experiencia tipo espejo
+            frame = cv2.flip(frame, 1)
+            
+            # Hacer una copia del frame para mostrar
+            output_frame = frame.copy()
+            
+            # Dibujar el área de detección
+            height, width = frame.shape[:2]
+            size = min(height, width) // 2
+            x = (width - size) // 2
+            y = (height - size) // 2
+            cv2.rectangle(output_frame, (x, y), (x + size, y + size), (0, 255, 0), 2)
+            
+            # Preprocesar solo el área de interés
+            roi = frame[y:y+size, x:x+size]
+            if roi.size > 0:
+                input_img = preprocess(roi)
+                
+                # Realizar la predicción
+                pred = model.predict(input_img, verbose=0)[0]
+                predicted_idx = np.argmax(pred)
+                confidence = pred[predicted_idx]
+                letter = labels[predicted_idx]
+                
+                # Mostrar la predicción
+                text = f'Letra: {letter} ({confidence*100:.1f}%)'
+                cv2.putText(output_frame, text, (10, 40),
+                          cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
+                
+                # Lógica para confirmar la letra
+                if confidence > CONFIDENCE_THRESHOLD:
+                    if letter == last_letter:
+                        letter_count += 1
+                        if letter_count == MIN_FRAMES and (not history or history[-1] != letter):
+                            history.append(letter)
+                            if len(history) > 50:
+                                history.pop(0)
+                    else:
+                        last_letter = letter
+                        letter_count = 1
+            
+            # Codificar el frame para la transmisión
+            ret, buffer = cv2.imencode('.jpg', output_frame)
+            if not ret:
+                print("Error al codificar el frame")
+                continue
+                
+            frame = buffer.tobytes()
+            yield (b'--frame\r\n'
+                  b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            
+        except Exception as e:
+            print(f"Error en generate_frames: {str(e)}")
+            break
 
 @app.route('/')
 def index():
@@ -117,7 +140,13 @@ def index():
 
 @app.route('/video')
 def video():
-    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    return Response(generate_frames(), 
+                   mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/video_feed')
+def video_feed():
+    return Response(generate_frames(),
+                   mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/history')
 def get_history():
