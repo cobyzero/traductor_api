@@ -96,20 +96,63 @@ class Camera:
     def start(self):
         """Inicia la cámara y el hilo de captura."""
         if self.thread is not None and self.thread.is_alive():
-            return  # Ya está corriendo
+            return True  # Ya está corriendo
             
         self.stopped = False
-        if self.is_virtual:
-            self.thread = threading.Thread(target=self._update_virtual, daemon=True)
-        else:
+        
+        try:
+            if self.is_virtual:
+                self.thread = threading.Thread(target=self._update_virtual, daemon=True)
+                self.thread.start()
+                logger.info("Cámara virtual iniciada correctamente")
+                return True
+                
+            # Para cámara real
+            logger.info(f"Intentando abrir la cámara: {self.src}")
             self.cap = cv2.VideoCapture(self.src)
+            
             if not self.cap.isOpened():
                 logger.error(f"No se pudo abrir la fuente de video: {self.src}")
-                return False
+                # Intentar forzar la apertura con backend específico
+                self.cap = cv2.VideoCapture(self.src, cv2.CAP_ANY)
+                if not self.cap.isOpened():
+                    logger.error("Segundo intento fallido. Usando modo virtual.")
+                    self.is_virtual = True
+                    self.thread = threading.Thread(target=self._update_virtual, daemon=True)
+                    self.thread.start()
+                    return True
+            
+            # Configurar propiedades de la cámara
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+            
+            # Iniciar el hilo de actualización
             self.thread = threading.Thread(target=self._update, daemon=True)
-        
-        self.thread.start()
-        return True
+            self.thread.start()
+            
+            # Esperar a que el primer frame esté disponible
+            start_time = time.time()
+            while self.frame is None and (time.time() - start_time) < 5.0:
+                time.sleep(0.1)
+                
+            if self.frame is None:
+                logger.warning("No se recibieron frames de la cámara. Usando modo virtual.")
+                self.stop()
+                self.is_virtual = True
+                return self.start()  # Reiniciar en modo virtual
+                
+            logger.info(f"Cámara {self.src} iniciada correctamente")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error al iniciar la cámara: {str(e)}")
+            self.stop()
+            # En caso de error, cambiar a modo virtual
+            if not self.is_virtual:
+                logger.info("Cambiando a modo virtual debido a error")
+                self.is_virtual = True
+                return self.start()
+            return False
     
     def stop(self):
         """Detiene la cámara y libera recursos."""
@@ -236,18 +279,45 @@ class Camera:
         if hasattr(self, 'thread'):
             self.thread.join()
 
+# Configuración de la cámara
+IS_PRODUCTION = os.environ.get('PRODUCTION', 'false').lower() == 'true'
+CAMERA_SOURCE = os.environ.get('CAMERA_SOURCE', '0')  # Por defecto cámara 0, puede ser una URL RTSP
+IS_VIRTUAL = os.environ.get('VIRTUAL_CAMERA', str(IS_PRODUCTION).lower()) == 'true'  # Modo virtual en producción por defecto
+
 # Inicializar la cámara
-camera = Camera()  # No se inicia automáticamente
+try:
+    camera = Camera(
+        src=CAMERA_SOURCE if not IS_VIRTUAL else 0,
+        width=800,
+        height=600,
+        is_virtual=IS_VIRTUAL
+    )
+    logger.info(f"Cámara inicializada en modo {'virtual' if IS_VIRTUAL else 'real'}")
+except Exception as e:
+    logger.error(f"Error al inicializar la cámara: {str(e)}")
+    # Forzar modo virtual si hay error
+    camera = Camera(is_virtual=True)
+    logger.info("Modo virtual forzado debido a error en la cámara")
 
 # Estado del procesamiento
 processing_active = False
 
 def get_camera():
     global camera
-    if not hasattr(camera, 'stopped') or camera.stopped:
-        camera = Camera()
-        camera.start()
-    return camera
+    try:
+        if not hasattr(camera, 'stopped') or camera.stopped:
+            camera = Camera(
+                src=CAMERA_SOURCE if not IS_VIRTUAL else 0,
+                width=800,
+                height=600,
+                is_virtual=IS_VIRTUAL
+            )
+            camera.start()
+        return camera
+    except Exception as e:
+        logger.error(f"Error al obtener la cámara: {str(e)}")
+        # Devolver una cámara virtual si hay error
+        return Camera(is_virtual=True)
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
