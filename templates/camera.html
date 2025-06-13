@@ -204,16 +204,24 @@
                 </div>
                 
                 <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h5 class="card-title mb-0">Historial</h5>
-                        <div>
-                            <button id="clearHistoryBtn" class="btn btn-sm btn-outline-danger me-2" title="Limpiar historial">
-                                <i class="fas fa-trash"></i>
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0">Historial de Letras</h5>
+                        <div class="btn-group">
+                            <button id="clearHistoryBtn" class="btn btn-sm btn-outline-danger">
+                                <i class="fas fa-trash-alt me-1"></i> Limpiar
                             </button>
-                            <button id="copyHistoryBtn" class="btn btn-sm btn-outline-primary" title="Copiar al portapapeles">
-                                <i class="fas fa-copy"></i>
+                            <button id="copyHistoryBtn" class="btn btn-sm btn-outline-primary">
+                                <i class="fas fa-copy me-1"></i> Copiar
                             </button>
                         </div>
+                    </div>
+                    <div class="d-flex justify-content-center mb-3">
+                        <button id="startProcessingBtn" class="btn btn-success me-2">
+                            <i class="fas fa-play me-1"></i> Iniciar Reconocimiento
+                        </button>
+                        <button id="stopProcessingBtn" class="btn btn-danger" disabled>
+                            <i class="fas fa-stop me-1"></i> Detener Reconocimiento
+                        </button>
                     </div>
                     <div class="card-body p-0">
                         <div id="historyBox" class="history-box">
@@ -236,6 +244,9 @@
             const videoFeed = document.getElementById('videoFeed');
             const startCameraBtn = document.getElementById('startCameraBtn');
             const stopCameraBtn = document.getElementById('stopCameraBtn');
+            const startProcessingBtn = document.getElementById('startProcessingBtn');
+            const stopProcessingBtn = document.getElementById('stopProcessingBtn');
+            let isProcessing = false;
             const currentLetterEl = document.getElementById('currentLetter');
             const confidenceBar = document.getElementById('confidenceBar');
             const confidenceText = document.getElementById('confidenceText');
@@ -559,11 +570,59 @@
                     });
             }
             
+            // Función para iniciar el procesamiento
+            async function startProcessing() {
+                try {
+                    const response = await fetch('/start_processing', { method: 'POST' });
+                    const data = await response.json();
+                    if (data.status === 'processing_started') {
+                        isProcessing = true;
+                        startProcessingBtn.disabled = true;
+                        stopProcessingBtn.disabled = false;
+                        updateProcessingStatus(true);
+                    }
+                } catch (error) {
+                    console.error('Error al iniciar el procesamiento:', error);
+                    alert('Error al iniciar el procesamiento');
+                }
+            }
+
+            // Función para detener el procesamiento
+            async function stopProcessing() {
+                try {
+                    const response = await fetch('/stop_processing', { method: 'POST' });
+                    const data = await response.json();
+                    if (data.status === 'processing_stopped') {
+                        isProcessing = false;
+                        startProcessingBtn.disabled = false;
+                        stopProcessingBtn.disabled = true;
+                        updateProcessingStatus(false);
+                    }
+                } catch (error) {
+                    console.error('Error al detener el procesamiento:', error);
+                    alert('Error al detener el procesamiento');
+                }
+            }
+
+            // Actualizar la interfaz según el estado del procesamiento
+            function updateProcessingStatus(active) {
+                const statusElement = document.getElementById('processingStatus');
+                if (statusElement) {
+                    statusElement.textContent = active ? 'Activo' : 'Inactivo';
+                    statusElement.className = `badge bg-${active ? 'success' : 'secondary'}`;
+                }
+            }
+
             // Event Listeners
             startCameraBtn.addEventListener('click', startCamera);
             stopCameraBtn.addEventListener('click', stopCamera);
+            startProcessingBtn.addEventListener('click', startProcessing);
+            stopProcessingBtn.addEventListener('click', stopProcessing);
             clearHistoryBtn.addEventListener('click', clearHistory);
             copyHistoryBtn.addEventListener('click', copyHistoryToClipboard);
+            
+            // Inicializar el estado de los botones
+            updateProcessingStatus(false);
             
             // Iniciar la cámara automáticamente al cargar la página
             startCamera();

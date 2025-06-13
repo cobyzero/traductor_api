@@ -74,30 +74,88 @@ class Camera:
         self.width = width
         self.height = height
         self.frame = None
-        self.stopped = False
+        self.stopped = True  # Inicialmente detenido
         self.lock = threading.Lock()
         self.last_frame_time = time.time()
         self.frame_timeout = 2.0  # segundos
         self.is_virtual = is_virtual
         self.hand_detector = HandDetector() if MEDIAPIPE_AVAILABLE else None
         self.test_frame = self._create_test_frame() if is_virtual else None
-        
-    def start(self):
-        self.stopped = False
-        self.thread = threading.Thread(target=self.update, daemon=True)
-        self.thread.start()
-        return self
+        self.thread = None
+        self.cap = None
     
     def _create_test_frame(self):
         """Crea un frame de prueba con un círculo que se mueve"""
         frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
         t = time.time()
-        center_x = int(self.width // 2 + self.width // 3 * np.sin(t * 2))
-        center_y = int(self.height // 2 + self.height // 3 * np.cos(t * 3))
-        cv2.circle(frame, (center_x, center_y), 30, (0, 255, 0), -1)
-        cv2.putText(frame, "MODO DE PRUEBA", (50, 50), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        x = int((np.sin(t) * 0.4 + 0.5) * self.width)
+        y = int((np.cos(t * 0.7) * 0.4 + 0.5) * self.height)
+        cv2.circle(frame, (x, y), 30, (0, 255, 0), -1)
         return frame
+    
+    def start(self):
+        """Inicia la cámara y el hilo de captura."""
+        if self.thread is not None and self.thread.is_alive():
+            return  # Ya está corriendo
+            
+        self.stopped = False
+        if self.is_virtual:
+            self.thread = threading.Thread(target=self._update_virtual, daemon=True)
+        else:
+            self.cap = cv2.VideoCapture(self.src)
+            if not self.cap.isOpened():
+                logger.error(f"No se pudo abrir la fuente de video: {self.src}")
+                return False
+            self.thread = threading.Thread(target=self._update, daemon=True)
+        
+        self.thread.start()
+        return True
+    
+    def stop(self):
+        """Detiene la cámara y libera recursos."""
+        self.stopped = True
+        if self.thread is not None:
+            self.thread.join(timeout=1.0)
+            self.thread = None
+        
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
+    
+    def _update_virtual(self):
+        """Actualiza el frame para la cámara virtual."""
+        while not self.stopped:
+            with self.lock:
+                self.frame = self._create_test_frame()
+                self.last_frame_time = time.time()
+            time.sleep(0.033)  # ~30 FPS
+    
+    def _update(self):
+        """Actualiza el frame de la cámara real."""
+        while not self.stopped:
+            if self.cap is None:
+                time.sleep(0.1)
+                continue
+                
+            ret, frame = self.cap.read()
+            if not ret:
+                logger.error(f"Error al leer el frame de la cámara {self.src}")
+                time.sleep(0.1)
+                continue
+                
+            with self.lock:
+                self.frame = cv2.resize(frame, (self.width, self.height))
+                self.last_frame_time = time.time()
+    
+    def read(self):
+        """Lee el frame actual de la cámara."""
+        if self.stopped:
+            return False, None
+            
+        with self.lock:
+            if self.frame is None or (time.time() - self.last_frame_time) > self.frame_timeout:
+                return False, None
+            return True, self.frame.copy()
     
     def update(self):
         cap = None
@@ -179,7 +237,10 @@ class Camera:
             self.thread.join()
 
 # Inicializar la cámara
-camera = Camera().start()
+camera = Camera()  # No se inicia automáticamente
+
+# Estado del procesamiento
+processing_active = False
 
 def get_camera():
     global camera
@@ -294,76 +355,80 @@ def generate_frames():
             if not success or frame is None:
                 # Generar un frame negro con mensaje de error
                 frame = np.zeros((480, 640, 3), dtype=np.uint8)
-                cv2.putText(frame, "Esperando cámara...", (50, 240), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-                ret, buffer = cv2.imencode('.jpg', frame)
-                yield (b'--frame\r\n'
-                      b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-                time.sleep(1)
                 continue
             
-            # Voltear la imagen horizontalmente para una experiencia tipo espejo
-            frame = cv2.flip(frame, 1)
-            
-            # Hacer una copia del frame para mostrar
-            output_frame = frame.copy()
-            
-            # Dibujar el área de detección
-            height, width = frame.shape[:2]
-            size = min(height, width) // 2
-            x = (width - size) // 2
-            y = (height - size) // 2
-            
-            # Dibujar el área de detección con un borde más visible
-            cv2.rectangle(output_frame, (x, y), (x + size, y + size), (0, 255, 0), 2)
-            
-            try:
-                # Preprocesar solo el área de interés
-                roi = frame[y:y+size, x:x+size]
-                if roi.size > 0:
-                    input_img = preprocess(roi)
-                    
-                    # Realizar la predicción (con un timeout para evitar bloqueos)
-                    pred = model.predict(input_img, verbose=0)[0]
-                    predicted_idx = np.argmax(pred)
-                    confidence = pred[predicted_idx]
-                    letter = labels[predicted_idx]
-                    
-                    # Mostrar la predicción
-                    text = f'Letra: {letter} ({confidence*100:.1f}%)'
-                    cv2.putText(output_frame, text, (10, 40),
-                              cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
-                    
-                    # Lógica para confirmar la letra
-                    if confidence > CONFIDENCE_THRESHOLD:
-                        if letter == last_letter:
-                            letter_count += 1
-                            if letter_count == MIN_FRAMES and (not history or history[-1] != letter):
-                                history.append(letter)
-                                if len(history) > 50:
-                                    history.pop(0)
-                        else:
-                            last_letter = letter
-                            letter_count = 1
-            except Exception as e:
-                logger.error(f"Error en el procesamiento: {str(e)}")
-            
-            # Codificar el frame para la transmisión
-            ret, buffer = cv2.imencode('.jpg', output_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
-            if not ret:
-                logger.warning("Error al codificar el frame")
+            if frame is None:
+                time.sleep(0.1)
                 continue
                 
-            frame = buffer.tobytes()
-            yield (b'--frame\r\n'
-                  b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            # Solo procesar si está activo
+            if processing_active:
+                # Procesar el frame con MediaPipe si está disponible
+                if MEDIAPIPE_AVAILABLE and hand_detector:
+                    frame, _ = hand_detector.process(frame)
+                    
+                # Si hay un modelo cargado, hacer la predicción
+                if model is not None:
+                    try:
+                        # Preprocesar la imagen para el modelo
+                        model_input = preprocess(frame)
+                        
+                        # Asegurarse de que la entrada tenga la forma correcta (batch_size, 28, 28, 1)
+                        if len(model_input.shape) == 3:
+                            model_input = np.expand_dims(model_input, axis=0)
+                        
+                        # Hacer la predicción
+                        prediction = model.predict(model_input, verbose=0)[0]
+                        predicted_class = np.argmax(prediction)
+                        confidence = float(prediction[predicted_class])
+                        
+                        # Mapear la clase predicha a la letra correspondiente
+                        asl_letters = [chr(i) for i in range(65, 91) if chr(i) not in ['J', 'Z']]
+                        if 0 <= predicted_class < len(asl_letters):
+                            detected_letter = asl_letters[predicted_class]
+                            
+                            # Actualizar el historial si la confianza es suficiente
+                            if confidence > CONFIDENCE_THRESHOLD:
+                                if detected_letter == last_letter:
+                                    letter_count += 1
+                                    if letter_count >= MIN_FRAMES and (not history or history[-1] != detected_letter):
+                                        history.append(detected_letter)
+                                        if len(history) > 30:  # Limitar el historial a 30 letras
+                                            history.pop(0)
+                                else:
+                                    last_letter = detected_letter
+                                    letter_count = 1
+                            
+                            # Mostrar la letra detectada y la confianza
+                            cv2.putText(frame, f"Letra: {detected_letter} ({confidence:.2f})", 
+                                      (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                    except Exception as e:
+                        logger.error(f"Error en la predicción: {str(e)}")
+                        cv2.putText(frame, "Error en la predicción", 
+                                   (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+            else:
+                # Mostrar mensaje de que el procesamiento está inactivo
+                cv2.putText(frame, "Procesamiento inactivo", 
+                           (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
             
+            # Codificar el frame en formato JPEG
+            ret, buffer = cv2.imencode('.jpg', frame)
+            if not ret:
+                time.sleep(0.1)
+                continue
+                
+            frame_bytes = buffer.tobytes()
+            
+            # Enviar el frame como un stream de bytes
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                
             # Pequeña pausa para no saturar el cliente
             time.sleep(0.03)
             
         except Exception as e:
             logger.error(f"Error en generate_frames: {str(e)}")
-            time.sleep(1)
+            time.sleep(0.1)
 
 # Ruta para la página de inicio
 @app.route('/')
@@ -514,6 +579,21 @@ def process_image(image_path):
         logger.error(f"Error al procesar la imagen: {str(e)}")
         return {'error': str(e)}
 
+@app.route('/start_processing', methods=['POST'])
+def start_processing():
+    """Inicia el procesamiento de la cámara."""
+    global processing_active
+    processing_active = True
+    camera.start()
+    return jsonify({'status': 'processing_started'})
+
+@app.route('/stop_processing', methods=['POST'])
+def stop_processing():
+    """Detiene el procesamiento de la cámara."""
+    global processing_active
+    processing_active = False
+    return jsonify({'status': 'processing_stopped'})
+
 @app.route('/history')
 def get_history():
     # Devolver las últimas 30 letras como una cadena
@@ -524,7 +604,7 @@ def get_history():
 
 def run_app():
     try:
-        app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False, threaded=True)
+        app.run(debug=True)
     except Exception as e:
         logger.error(f"Error en la aplicación: {str(e)}")
     finally:
