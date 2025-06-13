@@ -1,11 +1,15 @@
-from flask import Flask, render_template, jsonify, request, send_from_directory
+from flask import Flask, render_template, Response, jsonify, request
 import cv2
 import numpy as np
 import tensorflow as tf
-import os
+from collections import deque
+import time
+import threading
 import logging
+import os
 import sys
-from datetime import datetime
+import base64
+import json
 
 # Configurar logging
 logging.basicConfig(
@@ -117,15 +121,8 @@ class Camera:
                     self.thread = threading.Thread(target=self._update_virtual, daemon=True)
                     self.thread.start()
                     return True
-        except Exception as e:
-            logger.error(f"Error al iniciar la cámara: {str(e)}")
-            self.is_virtual = True
-            self.thread = threading.Thread(target=self._update_virtual, daemon=True)
-            self.thread.start()
-            return True
             
-        # Configurar propiedades de la cámara
-        try:
+            # Configurar propiedades de la cámara
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
             
@@ -133,86 +130,230 @@ class Camera:
             self.thread = threading.Thread(target=self._update, daemon=True)
             self.thread.start()
             
+            # Esperar a que el primer frame esté disponible
+            start_time = time.time()
+            while self.frame is None and (time.time() - start_time) < 5.0:
+                time.sleep(0.1)
+                
+            if self.frame is None:
+                logger.warning("No se recibieron frames de la cámara. Usando modo virtual.")
+                self.stop()
+                self.is_virtual = True
+                return self.start()  # Reiniciar en modo virtual
+                
             logger.info(f"Cámara {self.src} iniciada correctamente")
             return True
             
         except Exception as e:
-            logger.error(f"Error al configurar la cámara: {str(e)}")
-            self.is_virtual = True
-            self.thread = threading.Thread(target=self._update_virtual, daemon=True)
-            self.thread.start()
-            return True
+            logger.error(f"Error al iniciar la cámara: {str(e)}")
+            self.stop()
+            # En caso de error, cambiar a modo virtual
+            if not self.is_virtual:
+                logger.info("Cambiando a modo virtual debido a error")
+                self.is_virtual = True
+                return self.start()
+            return False
+    
+    def stop(self):
+        """Detiene la cámara y libera recursos."""
+        self.stopped = True
+        if self.thread is not None:
+            self.thread.join(timeout=1.0)
+            self.thread = None
+        
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
+    
+    def _update_virtual(self):
+        """Actualiza el frame para la cámara virtual."""
+        while not self.stopped:
+            with self.lock:
+                self.frame = self._create_test_frame()
+                self.last_frame_time = time.time()
+            time.sleep(0.033)  # ~30 FPS
+    
+    def _update(self):
+        """Actualiza el frame de la cámara real."""
+        while not self.stopped:
+            if self.cap is None:
+                time.sleep(0.1)
+                continue
+                
+            ret, frame = self.cap.read()
+            if not ret:
+                logger.error(f"Error al leer el frame de la cámara {self.src}")
+                time.sleep(0.1)
+                continue
+                
+            with self.lock:
+                self.frame = cv2.resize(frame, (self.width, self.height))
+                self.last_frame_time = time.time()
+    
+    def read(self):
+        """Lee el frame actual de la cámara."""
+        if self.stopped:
+            return False, None
+            
+        with self.lock:
+            if self.frame is None or (time.time() - self.last_frame_time) > self.frame_timeout:
+                return False, None
+            return True, self.frame.copy()
+    
+    def update(self):
+        cap = None
+        
+        # Si es una cámara virtual, solo usamos el frame de prueba
+        if self.is_virtual:
+            while not self.stopped:
+                with self.lock:
+                    self.test_frame = self._create_test_frame()
+                    self.frame = self.test_frame
+                    self.last_frame_time = time.time()
+                time.sleep(0.03)  # ~30 FPS
+            return
+            
+        # Para cámaras reales
+        while not self.stopped:
+            try:
+                if cap is None or not cap.isOpened():
+                    if cap is not None:
+                        cap.release()
+                    
+                    # Intentar diferentes fuentes de video
+                    if isinstance(self.src, str) and self.src.startswith('http'):
+                        # Para streams RTSP o HTTP
+                        cap = cv2.VideoCapture(self.src, cv2.CAP_FFMPEG)
+                    else:
+                        # Para cámaras USB
+                        cap = cv2.VideoCapture(self.src, cv2.CAP_ANY)
+                    
+                    if not cap.isOpened():
+                        logger.error(f"No se pudo abrir la fuente de video: {self.src}")
+                        time.sleep(2)
+                        continue
+                        
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+                    cap.set(cv2.CAP_PROP_FPS, 30)
+                    time.sleep(1)  # Dar tiempo a la cámara para inicializarse
+                    logger.info(f"Cámara {self.src} inicializada correctamente")
+                    continue
+                
+                ret, frame = cap.read()
+                if not ret:
+                    logger.warning("No se pudo leer el frame de la cámara")
+                    cap.release()
+                    cap = None
+                    time.sleep(1)
+                    continue
+                
+                # Procesar detección de manos si está disponible
+                if self.hand_detector:
+                    frame = self.hand_detector.process(frame)
+                
+                with self.lock:
+                    self.frame = frame
+                    self.last_frame_time = time.time()
+                
+                time.sleep(0.03)  # ~30 FPS
+                
+            except Exception as e:
+                logger.error(f"Error en el hilo de la cámara: {str(e)}", exc_info=True)
+                if cap is not None:
+                    cap.release()
+                    cap = None
+                time.sleep(1)
+        
+        if cap is not None:
+            cap.release()
+    
+    def read(self):
+        with self.lock:
+            if self.frame is None or (time.time() - self.last_frame_time) > self.frame_timeout:
+                return None, None
+            return True, self.frame.copy()
+    
+    def stop(self):
+        self.stopped = True
+        if hasattr(self, 'thread'):
+            self.thread.join()
 
-# Configuración de la aplicación
-UPLOAD_FOLDER = 'static/uploads'
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+# Configuración de la cámara
+IS_PRODUCTION = os.environ.get('PRODUCTION', 'false').lower() == 'true'
+CAMERA_SOURCE = os.environ.get('CAMERA_SOURCE', '0')  # Por defecto cámara 0, puede ser una URL RTSP
+IS_VIRTUAL = os.environ.get('VIRTUAL_CAMERA', str(IS_PRODUCTION).lower()) == 'true'  # Modo virtual en producción por defecto
 
-# Asegurar que el directorio de subidas exista
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# Inicializar la cámara
+try:
+    camera = Camera(
+        src=CAMERA_SOURCE if not IS_VIRTUAL else 0,
+        width=800,
+        height=600,
+        is_virtual=IS_VIRTUAL
+    )
+    logger.info(f"Cámara inicializada en modo {'virtual' if IS_VIRTUAL else 'real'}")
+except Exception as e:
+    logger.error(f"Error al inicializar la cámara: {str(e)}")
+    # Forzar modo virtual si hay error
+    camera = Camera(is_virtual=True)
+    logger.info("Modo virtual forzado debido a error en la cámara")
 
-# Inicializar la aplicación Flask
+# Estado del procesamiento
+processing_active = False
+
+def get_camera():
+    global camera
+    try:
+        if not hasattr(camera, 'stopped') or camera.stopped:
+            camera = Camera(
+                src=CAMERA_SOURCE if not IS_VIRTUAL else 0,
+                width=800,
+                height=600,
+                is_virtual=IS_VIRTUAL
+            )
+            camera.start()
+        return camera
+    except Exception as e:
+        logger.error(f"Error al obtener la cámara: {str(e)}")
+        # Devolver una cámara virtual si hay error
+        return Camera(is_virtual=True)
+
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
-app.config['UPLOAD_EXTENSIONS'] = ALLOWED_EXTENSIONS
+
+# Crear carpeta de subidas si no existe
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Cargar el modelo de reconocimiento de señas
 try:
     model = tf.keras.models.load_model('model_mnist_asl.h5')
     labels = [chr(i) for i in range(65, 91) if chr(i) not in ['J', 'Z']]
-    logger.info("Modelo cargado exitosamente")
 except Exception as e:
     logger.error(f"Error al cargar el modelo: {str(e)}")
     logger.warning("El sistema funcionará en modo solo detección de manos")
     model = None
     labels = []
 
-def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+# Configuración de la cámara
+CAMERA_SOURCE = os.environ.get('CAMERA_SOURCE', '0')  # Por defecto cámara 0, puede ser una URL RTSP
+IS_VIRTUAL = os.environ.get('VIRTUAL_CAMERA', 'true').lower() == 'true'  # Por defecto modo virtual para evitar errores
 
-@app.route('/')
-def home():
-    return render_template('index.html')
+# Inicializar la cámara
+camera = Camera(
+    src=CAMERA_SOURCE if not IS_VIRTUAL else 0,
+    width=800,
+    height=600,
+    is_virtual=IS_VIRTUAL
+).start()
 
-@app.route('/uploads/<filename>')
-def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
-
-@app.route('/api/process-image', methods=['POST'])
-def process_upload():
-    if 'image' not in request.files:
-        return jsonify({'error': 'No se proporcionó ninguna imagen'}), 400
-    
-    file = request.files['image']
-    if file.filename == '':
-        return jsonify({'error': 'Nombre de archivo vacío'}), 400
-    
-    if file and allowed_file(file.filename):
-        # Generar un nombre de archivo único
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"{timestamp}_{file.filename}"
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        
-        # Guardar la imagen
-        file.save(filepath)
-        
-        try:
-            # Procesar la imagen
-            result = process_image(filepath)
-            
-            # Devolver el resultado
-            return jsonify({
-                'status': 'success',
-                'filename': filename,
-                'result': result
-            })
-            
-        except Exception as e:
-            logger.error(f"Error al procesar la imagen: {str(e)}")
-            return jsonify({'error': str(e)}), 500
-    
-    return jsonify({'error': 'Tipo de archivo no permitido'}), 400
+# Historial de letras detectadas
+history = []
+last_letter = None
+letter_count = 0
+CONFIDENCE_THRESHOLD = 0.8  # Umbral de confianza mínimo
+MIN_FRAMES = 5  # Mínimo de frames para confirmar una letra
 
 def preprocess(frame):
     # Asegurarse de que la imagen tenga 3 canales (por si es en escala de grises)
@@ -269,7 +410,112 @@ def preprocess(frame):
         normalized = np.expand_dims(normalized, axis=-1)
     
     return normalized
+    
+    # La función ya devuelve el valor normalizado
+    pass
 
+def generate_frames():
+    global history, last_letter, letter_count
+    
+    while True:
+        try:
+            # Obtener el frame de la cámara
+            cam = get_camera()
+            success, frame = cam.read()
+            
+            if not success or frame is None:
+                # Generar un frame negro con mensaje de error
+                frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                continue
+            
+            if frame is None:
+                time.sleep(0.1)
+                continue
+                
+            # Solo procesar si está activo
+            if processing_active:
+                # Procesar el frame con MediaPipe si está disponible
+                if MEDIAPIPE_AVAILABLE and hasattr(cam, 'hand_detector') and cam.hand_detector is not None:
+                    frame = cam.hand_detector.process(frame)
+                    
+                # Si hay un modelo cargado, hacer la predicción
+                if model is not None:
+                    try:
+                        # Preprocesar la imagen para el modelo
+                        model_input = preprocess(frame)
+                        
+                        # Asegurarse de que la entrada tenga la forma correcta (batch_size, 28, 28, 1)
+                        if len(model_input.shape) == 3:
+                            model_input = np.expand_dims(model_input, axis=0)
+                        
+                        # Hacer la predicción
+                        prediction = model.predict(model_input, verbose=0)[0]
+                        predicted_class = np.argmax(prediction)
+                        confidence = float(prediction[predicted_class])
+                        
+                        # Mapear la clase predicha a la letra correspondiente
+                        asl_letters = [chr(i) for i in range(65, 91) if chr(i) not in ['J', 'Z']]
+                        if 0 <= predicted_class < len(asl_letters):
+                            detected_letter = asl_letters[predicted_class]
+                            
+                            # Actualizar el historial si la confianza es suficiente
+                            if confidence > CONFIDENCE_THRESHOLD:
+                                if detected_letter == last_letter:
+                                    letter_count += 1
+                                    if letter_count >= MIN_FRAMES and (not history or history[-1] != detected_letter):
+                                        history.append(detected_letter)
+                                        if len(history) > 30:  # Limitar el historial a 30 letras
+                                            history.pop(0)
+                                else:
+                                    last_letter = detected_letter
+                                    letter_count = 1
+                            
+                            # Mostrar la letra detectada y la confianza
+                            cv2.putText(frame, f"Letra: {detected_letter} ({confidence:.2f})", 
+                                      (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                    except Exception as e:
+                        logger.error(f"Error en la predicción: {str(e)}")
+                        cv2.putText(frame, "Error en la predicción", 
+                                   (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+            else:
+                # Mostrar mensaje de que el procesamiento está inactivo
+                cv2.putText(frame, "Procesamiento inactivo", 
+                           (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+            
+            # Codificar el frame en formato JPEG
+            ret, buffer = cv2.imencode('.jpg', frame)
+            if not ret:
+                time.sleep(0.1)
+                continue
+                
+            frame_bytes = buffer.tobytes()
+            
+            # Enviar el frame como un stream de bytes
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                
+            # Pequeña pausa para no saturar el cliente
+            time.sleep(0.03)
+            
+        except Exception as e:
+            logger.error(f"Error en generate_frames: {str(e)}")
+            time.sleep(0.1)
+
+# Ruta para la página de inicio
+@app.route('/')
+def home():
+    return render_template('home.html')
+
+# Ruta para la cámara en tiempo real
+@app.route('/camera')
+def camera():
+    return render_template('camera.html', 
+                         hand_detection=MEDIAPIPE_AVAILABLE,
+                         model_loaded=model is not None,
+                         camera_source=CAMERA_SOURCE if not IS_VIRTUAL else 'Virtual',
+                         is_virtual=IS_VIRTUAL)
+
+# Ruta para subir imagen
 @app.route('/upload', methods=['GET', 'POST'])
 def upload_file():
     if request.method == 'POST':
