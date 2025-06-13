@@ -6,13 +6,68 @@ from collections import deque
 import time
 import threading
 import logging
+import os
+import sys
 
 # Configurar logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('app.log')
+    ]
+)
 logger = logging.getLogger(__name__)
 
+# Intentar importar MediaPipe para detección de manos
+try:
+    import mediapipe as mp
+    from mediapipe.tasks import python
+    from mediapipe.tasks.python import vision
+    from mediapipe import solutions
+    from mediapipe.framework.formats import landmark_pb2
+    MEDIAPIPE_AVAILABLE = True
+except ImportError:
+    logger.warning("MediaPipe no está instalado. La detección de manos no estará disponible.")
+    MEDIAPIPE_AVAILABLE = False
+
+class HandDetector:
+    def __init__(self):
+        self.mp_hands = mp.solutions.hands
+        self.hands = self.mp_hands.Hands(
+            static_image_mode=False,
+            max_num_hands=2,
+            min_detection_confidence=0.7,
+            min_tracking_confidence=0.5
+        )
+        self.mp_drawing = mp.solutions.drawing_utils
+        
+    def process(self, image):
+        if not MEDIAPIPE_AVAILABLE:
+            return image
+            
+        # Convertir la imagen de BGR a RGB
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # Procesar la imagen y detectar manos
+        results = self.hands.process(image_rgb)
+        
+        # Dibujar los landmarks de las manos
+        if results.multi_hand_landmarks:
+            for hand_landmarks in results.multi_hand_landmarks:
+                self.mp_drawing.draw_landmarks(
+                    image,
+                    hand_landmarks,
+                    self.mp_hands.HAND_CONNECTIONS,
+                    self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2),
+                    self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2)
+                )
+        
+        return image
+
 class Camera:
-    def __init__(self, src=0, width=640, height=480):
+    def __init__(self, src=0, width=640, height=480, is_virtual=False):
         self.src = src
         self.width = width
         self.height = height
@@ -20,7 +75,10 @@ class Camera:
         self.stopped = False
         self.lock = threading.Lock()
         self.last_frame_time = time.time()
-        self.frame_timeout = 1.0  # segundos
+        self.frame_timeout = 2.0  # segundos
+        self.is_virtual = is_virtual
+        self.hand_detector = HandDetector() if MEDIAPIPE_AVAILABLE else None
+        self.test_frame = self._create_test_frame() if is_virtual else None
         
     def start(self):
         self.stopped = False
@@ -28,17 +86,55 @@ class Camera:
         self.thread.start()
         return self
     
+    def _create_test_frame(self):
+        """Crea un frame de prueba con un círculo que se mueve"""
+        frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+        t = time.time()
+        center_x = int(self.width // 2 + self.width // 3 * np.sin(t * 2))
+        center_y = int(self.height // 2 + self.height // 3 * np.cos(t * 3))
+        cv2.circle(frame, (center_x, center_y), 30, (0, 255, 0), -1)
+        cv2.putText(frame, "MODO DE PRUEBA", (50, 50), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        return frame
+    
     def update(self):
         cap = None
+        
+        # Si es una cámara virtual, solo usamos el frame de prueba
+        if self.is_virtual:
+            while not self.stopped:
+                with self.lock:
+                    self.test_frame = self._create_test_frame()
+                    self.frame = self.test_frame
+                    self.last_frame_time = time.time()
+                time.sleep(0.03)  # ~30 FPS
+            return
+            
+        # Para cámaras reales
         while not self.stopped:
             try:
                 if cap is None or not cap.isOpened():
                     if cap is not None:
                         cap.release()
-                    cap = cv2.VideoCapture(self.src)
+                    
+                    # Intentar diferentes fuentes de video
+                    if isinstance(self.src, str) and self.src.startswith('http'):
+                        # Para streams RTSP o HTTP
+                        cap = cv2.VideoCapture(self.src, cv2.CAP_FFMPEG)
+                    else:
+                        # Para cámaras USB
+                        cap = cv2.VideoCapture(self.src, cv2.CAP_ANY)
+                    
+                    if not cap.isOpened():
+                        logger.error(f"No se pudo abrir la fuente de video: {self.src}")
+                        time.sleep(2)
+                        continue
+                        
                     cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
                     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-                    time.sleep(0.5)  # Dar tiempo a la cámara para inicializarse
+                    cap.set(cv2.CAP_PROP_FPS, 30)
+                    time.sleep(1)  # Dar tiempo a la cámara para inicializarse
+                    logger.info(f"Cámara {self.src} inicializada correctamente")
                     continue
                 
                 ret, frame = cap.read()
@@ -46,18 +142,21 @@ class Camera:
                     logger.warning("No se pudo leer el frame de la cámara")
                     cap.release()
                     cap = None
-                    time.sleep(0.5)
+                    time.sleep(1)
                     continue
+                
+                # Procesar detección de manos si está disponible
+                if self.hand_detector:
+                    frame = self.hand_detector.process(frame)
                 
                 with self.lock:
                     self.frame = frame
                     self.last_frame_time = time.time()
                 
-                # Pequeña pausa para no saturar la CPU
                 time.sleep(0.03)  # ~30 FPS
                 
             except Exception as e:
-                logger.error(f"Error en el hilo de la cámara: {str(e)}")
+                logger.error(f"Error en el hilo de la cámara: {str(e)}", exc_info=True)
                 if cap is not None:
                     cap.release()
                     cap = None
@@ -87,8 +186,28 @@ def get_camera():
     return camera
 
 app = Flask(__name__)
-model = tf.keras.models.load_model('model_mnist_asl.h5')
-labels = [chr(i) for i in range(65, 91) if chr(i) not in ['J', 'Z']]
+
+# Cargar el modelo de reconocimiento de señas
+try:
+    model = tf.keras.models.load_model('model_mnist_asl.h5')
+    labels = [chr(i) for i in range(65, 91) if chr(i) not in ['J', 'Z']]
+except Exception as e:
+    logger.error(f"Error al cargar el modelo: {str(e)}")
+    logger.warning("El sistema funcionará en modo solo detección de manos")
+    model = None
+    labels = []
+
+# Configuración de la cámara
+CAMERA_SOURCE = os.environ.get('CAMERA_SOURCE', '0')  # Por defecto cámara 0, puede ser una URL RTSP
+IS_VIRTUAL = os.environ.get('VIRTUAL_CAMERA', 'false').lower() == 'true'
+
+# Inicializar la cámara
+camera = Camera(
+    src=CAMERA_SOURCE if not IS_VIRTUAL else 0,
+    width=800,
+    height=600,
+    is_virtual=IS_VIRTUAL
+).start()
 
 # Historial de letras detectadas
 history = []
@@ -222,7 +341,11 @@ def generate_frames():
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', 
+                         hand_detection=MEDIAPIPE_AVAILABLE,
+                         model_loaded=model is not None,
+                         camera_source=CAMERA_SOURCE if not IS_VIRTUAL else 'Virtual',
+                         is_virtual=IS_VIRTUAL)
 
 @app.route('/video')
 def video():
