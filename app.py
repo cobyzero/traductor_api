@@ -401,7 +401,10 @@ def process_image(image_path):
         if frame is None:
             return {'error': 'No se pudo leer la imagen'}
         
-        # Redimensionar manteniendo la relación de aspecto
+        # Hacer una copia para el procesamiento del modelo
+        processed_frame = frame.copy()
+        
+        # Redimensionar manteniendo la relación de aspecto para visualización
         height, width = frame.shape[:2]
         max_size = 800
         if height > width:
@@ -411,23 +414,73 @@ def process_image(image_path):
             new_width = max_size
             new_height = int(height * (max_size / width))
             
-        frame = cv2.resize(frame, (new_width, new_height))
+        display_frame = cv2.resize(frame.copy(), (new_width, new_height))
         
         # Procesar con MediaPipe si está disponible
+        hand_landmarks = None
         if MEDIAPIPE_AVAILABLE and hand_detector:
-            frame = hand_detector.process(frame)
+            # Procesar el frame original para la detección de manos
+            display_frame, hand_landmarks = hand_detector.process(display_frame)
+            
+            # Si se detectaron manos, procesar para el modelo
+            if hand_landmarks:
+                # Crear una máscara para la mano detectada
+                h, w = processed_frame.shape[:2]
+                mask = np.zeros((h, w), dtype=np.uint8)
+                
+                # Dibujar los puntos de referencia de la mano en la máscara
+                for hand_landmark in hand_landmarks:
+                    points = []
+                    for landmark in hand_landmark.landmark:
+                        x = min(int(landmark.x * w), w-1)
+                        y = min(int(landmark.y * h), h-1)
+                        points.append([x, y])
+                    
+                    if points:
+                        # Crear un polígono convexo alrededor de los puntos de la mano
+                        hull = cv2.convexHull(np.array(points, dtype=np.int32))
+                        cv2.fillConvexPoly(mask, hull, 255)
+                
+                # Aplicar la máscara a la imagen
+                processed_frame = cv2.bitwise_and(processed_frame, processed_frame, mask=mask)
+        
+        # Preprocesar la imagen para el modelo
+        model_input = preprocess(processed_frame)
+        
+        # Hacer la predicción si el modelo está cargado
+        detected_letter = '?'
+        confidence = 0.0
+        
+        if model is not None:
+            # Realizar la predicción
+            prediction = model.predict(np.expand_dims(model_input, axis=0))[0]
+            predicted_class = np.argmax(prediction)
+            confidence = float(prediction[predicted_class])
+            
+            # Mapear la clase predicha a la letra correspondiente
+            # Asumiendo que las letras están en orden alfabético (A=0, B=1, ..., Z=25)
+            # Excluyendo J y Z según el alfabeto de lenguaje de señas
+            asl_letters = [chr(i) for i in range(65, 91) if chr(i) not in ['J', 'Z']]
+            if 0 <= predicted_class < len(asl_letters):
+                detected_letter = asl_letters[predicted_class]
+            
+            # Guardar en el historial si la confianza es mayor al 50%
+            if confidence > 0.5:
+                history.append({
+                    'letter': detected_letter,
+                    'confidence': float(confidence),
+                    'timestamp': time.time()
+                })
         
         # Convertir a formato para mostrar en el navegador
-        _, buffer = cv2.imencode('.jpg', frame)
+        _, buffer = cv2.imencode('.jpg', display_frame)
         frame_bytes = buffer.tobytes()
-        
-        # Aquí podrías agregar el procesamiento del modelo de reconocimiento
-        # y devolver también la letra detectada y la confianza
         
         return {
             'image': base64.b64encode(frame_bytes).decode('utf-8'),
-            'detected_letter': 'A',  # Ejemplo
-            'confidence': 0.95         # Ejemplo
+            'detected_letter': detected_letter,
+            'confidence': confidence,
+            'hand_detected': hand_landmarks is not None
         }
     except Exception as e:
         logger.error(f"Error al procesar la imagen: {str(e)}")
