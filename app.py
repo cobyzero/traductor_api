@@ -57,4 +57,4 @@ def get_history():
     return jsonify({'history': ''.join(history[-30:])})
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run()
