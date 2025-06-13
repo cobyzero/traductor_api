@@ -1,5 +1,4 @@
 Flask==3.0.3
 numpy
 tensorflow
-gunicorn
-Pillow
+cv2
