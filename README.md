@@ -1,28 +1,80 @@
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fexamples%2Ftree%2Fmain%2Fpython%2Fflask3&demo-title=Flask%203%20%2B%20Vercel&demo-description=Use%20Flask%203%20on%20Vercel%20with%20Serverless%20Functions%20using%20the%20Python%20Runtime.&demo-url=https%3A%2F%2Fflask3-python-template.vercel.app%2F&demo-image=https://assets.vercel.com/image/upload/v1669994156/random/flask.png)
+# Traductor API
 
-# Flask + Vercel
+A Eel web application that recognizes sign language letters from the MNIST dataset. The app allows users to either take a photo using their device's camera or upload an image for recognition.
 
-This example shows how to use Flask 3 on Vercel with Serverless Functions using the [Python Runtime](https://vercel.com/docs/concepts/functions/serverless-functions/runtimes/python).
+## Features
 
-## Demo
+- Image upload functionality
+- Responsive design with Bootstrap 5
+- Simple and intuitive user interface
+- Displays prediction confidence score
 
-https://flask-python-template.vercel.app/
+## Prerequisites
 
-## How it Works
+- Python 3.9.6
+- pip (Python package manager)
 
-This example uses the Web Server Gateway Interface (WSGI) with Flask to enable handling requests on Vercel with Serverless Functions.
+## Installation
 
-## Running Locally
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd traductor_api
+   ```
 
-```bash
-npm i -g vercel
-vercel dev
-```
+2. Create a virtual environment (recommended):
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: .\venv\Scripts\activate
+   ```
 
-Your Flask application is now available at `http://localhost:3000`.
+3. Install the required packages:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-## One-Click Deploy
+## Usage Eel
 
-Deploy the example using [Vercel](https://vercel.com?utm_source=github&utm_medium=readme&utm_campaign=vercel-examples):
+1. Run the Eel application:
+   ```bash
+   python app.py
+   ```
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fexamples%2Ftree%2Fmain%2Fpython%2Fflask3&demo-title=Flask%203%20%2B%20Vercel&demo-description=Use%20Flask%203%20on%20Vercel%20with%20Serverless%20Functions%20using%20the%20Python%20Runtime.&demo-url=https%3A%2F%2Fflask3-python-template.vercel.app%2F&demo-image=https://assets.vercel.com/image/upload/v1669994156/random/flask.png)
+2. Open your web browser and navigate to:
+   ```
+   http://127.0.0.1:27000/
+   ```
+
+3. Choose between using your camera or uploading an image:
+   - **Camera Tab**: Click "Capture & Predict" to take a photo and get a prediction
+   - **Upload Tab**: Click "Choose an image" to select an image file, then click "Predict"
+
+## How It Works
+
+1. The application uses a pre-trained CNN model based on the MNIST dataset.
+2. When an image is captured or uploaded, it's preprocessed to match the MNIST format:
+   - Converted to grayscale
+   - Resized to 28x28 pixels
+   - Inverted (MNIST uses white digits on black background)
+   - Normalized
+3. The preprocessed image is then passed to the model for prediction.
+4. The predicted letter and confidence score are displayed to the user.
+
+## Compile Executable
+
+1. Compile the Eel application:
+   ```bash
+   pyinstaller --noconfirm --windowed --icon=icon.ico app.py --add-data "templates;templates"
+   ```
+
+2. The executable will be created in the `dist` folder.
+
+## Notes
+
+- This is a demo application using the MNIST dataset, which contains handwritten digits (0-9).
+- The mapping from digits to letters is simplified for demonstration purposes.
+- For production use, consider training on an actual sign language dataset.
+
+## License
+
+This project is open source and available under the MIT License.
