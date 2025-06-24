@@ -1,423 +1,135 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reconocimiento de Lenguaje de Señas</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <style>
-        body {
-            background-color: #f5f5f5;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-        .header {
-            background: linear-gradient(135deg, #28a745, #20c997);
-            color: white;
-            padding: 1.5rem 0;
-            margin-bottom: 2rem;
-            border-radius: 0 0 10px 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        .video-container {
-            position: relative;
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-            background: #000;
-        }
-        .video-box {
-            width: 100%;
-            display: block;
-        }
-        .history-container {
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-        }
-        .history-header {
-            background: linear-gradient(135deg, #28a745, #20c997);
-            color: white;
-            padding: 1rem;
-            border-radius: 10px 10px 0 0;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .history-box {
-            flex-grow: 1;
-            padding: 1.5rem;
-            font-size: 1.8rem;
-            line-height: 1.6;
-            overflow-y: auto;
-            min-height: 400px;
-            background: #f8f9fa;
-            border-radius: 0 0 10px 10px;
-        }
-        .confidence-meter {
-            height: 6px;
-            background: #e9ecef;
-            border-radius: 3px;
-            margin-top: 0.5rem;
-            overflow: hidden;
-        }
-        .confidence-level {
-            height: 100%;
-            background: #28a745;
-            width: 0%;
-            transition: width 0.3s ease;
-        }
-        .detection-area {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 200px;
-            height: 200px;
-            border: 3px dashed rgba(40, 167, 69, 0.7);
-            border-radius: 10px;
-            pointer-events: none;
-        }
-        .status-indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 8px;
-            background-color: #6c757d;
-        }
-        .status-active {
-            background-color: #28a745;
-            box-shadow: 0 0 10px #28a745;
-        }
-        @media (max-width: 768px) {
-            .history-box {
-                min-height: 200px;
-                font-size: 1.5rem;
-            }
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>Lengua de Señas - App de Escritorio</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="/eel.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://kit.fontawesome.com/a2e0c5e6b3.js" crossorigin="anonymous"></script>
+  <style>
+    body {
+      background: linear-gradient(to right, #4e54c8, #8f94fb);
+      min-height: 100vh;
+      color: #333;
+    }
+
+    .container {
+      max-width: 700px;
+      margin-top: 60px;
+    }
+
+    .card {
+      border: none;
+      border-radius: 20px;
+      box-shadow: 0 12px 25px rgba(0, 0, 0, 0.15);
+    }
+
+    .header h1 {
+      font-weight: bold;
+      color: white;
+      font-size: 2.5rem;
+    }
+
+    #preview {
+      max-width: 100%;
+      margin-top: 20px;
+      border-radius: 12px;
+      display: none;
+    }
+
+    #loadingSpinner {
+      display: none;
+    }
+
+    .result-box {
+      padding: 20px;
+      border-radius: 12px;
+      color: white;
+      font-size: 1.2rem;
+      text-align: center;
+    }
+
+    .result-low {
+      background-color: #e74c3c;
+    }
+
+    .result-medium {
+      background-color: #f1c40f;
+      color: #333;
+    }
+
+    .result-high {
+      background-color: #2ecc71;
+    }
+  </style>
 </head>
 <body>
-    <div class="container mt-4">
-        <h1 class="text-center mb-4">Reconocimiento de Lenguaje de Señas</h1>
-        
-        <!-- Estado del sistema -->
-        <div class="row mb-4">
-            <div class="col-md-12">
-                <div class="card">
-                    <div class="card-body p-3">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <span class="badge bg-success me-2">
-                                    <i class="fas fa-hand-paper"></i> Detección de Manos: Disponible
-                                </span>
-                                <span class="badge bg-success me-2">
-                                    <i class="fas fa-brain"></i> Modelo: Cargado
-                                </span>
-                                <span class="badge bg-info">
-                                    <i class="fas fa-video"></i> Fuente: Cámara
-                                </span>
-                            </div>
-                            <div id="connection-status" class="d-flex align-items-center">
-                                <span class="status-indicator me-2"></span>
-                                <span>Conectando...</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="row">
-            <!-- Video y detección -->
-            <div class="col-lg-8">
-                <div class="card mb-4">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0"><i class="fas fa-video me-2"></i>Cámara en Vivo</h5>
-                        <div>
-                            <span id="fps-counter" class="badge bg-primary me-2">0 FPS</span>
-                            <button id="flip-camera" class="btn btn-sm btn-outline-secondary">
-                                <i class="fas fa-sync-alt"></i> Cambiar Cámara
-                            </button>
-                        </div>
-                    </div>
-                    <div class="card-body p-0 position-relative">
-                        <div class="video-container">
-                            <img src="{{ url_for('video_feed') }}" class="img-fluid">
-                            <div class="detection-area"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Panel derecho -->
-            <div class="col-lg-4">
-                <!-- Letra actual -->
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5 class="mb-0"><i class="fas fa-hand-point-up me-2"></i>Letra Detectada</h5>
-                    </div>
-                    <div class="card-body text-center">
-                        <div id="current-letter" class="display-1 fw-bold text-primary">-</div>
-                        <div id="confidence" class="text-muted">Confianza: 0%</div>
-                        <div class="progress mt-2" style="height: 10px;">
-                            <div id="confidence-bar" class="progress-bar" role="progressbar" style="width: 0%;"></div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Historial -->
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0"><i class="fas fa-history me-2"></i>Historial</h5>
-                        <div>
-                            <button id="copy-history" class="btn btn-sm btn-outline-secondary me-2" title="Copiar al portapapeles">
-                                <i class="far fa-copy"></i>
-                            </button>
-                            <button id="clear-history" class="btn btn-sm btn-outline-danger" title="Limpiar historial">
-                                <i class="fas fa-trash-alt"></i>
-                            </button>
-                        </div>
-                    </div>
-                    <div class="card-body p-0">
-                        <div id="history" class="history-container">
-                            <div class="text-center text-muted py-3">
-                                <i class="fas fa-hand-paper fa-2x mb-2"></i>
-                                <p class="mb-0">Las letras detectadas aparecerán aquí</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-        <script>
-            let lastUpdate = 0;
-            let frameCount = 0;
-            let lastFrameTime = Date.now();
-            let currentFPS = 0;
-            let connectionOk = false;
-            let reconnectAttempts = 0;
-            const maxReconnectAttempts = 5;
-            let cameraIndex = 0;
-            
-            // Actualizar el estado de conexión
-            function updateConnectionStatus(connected) {
-                const statusEl = $('#connection-status');
-                const indicator = statusEl.find('.status-indicator');
-                const text = statusEl.find('span').not('.status-indicator');
-                
-                if (connected) {
-                    indicator.removeClass('disconnected').addClass('connected');
-                    text.text('Conectado');
-                    connectionOk = true;
-                    reconnectAttempts = 0;
-                } else {
-                    indicator.removeClass('connected').addClass('disconnected');
-                    text.text('Desconectado');
-                    connectionOk = false;
-                }
-            }
-            
-            // Actualizar FPS
-            function updateFPS() {
-                const now = Date.now();
-                const delta = now - lastFrameTime;
-                
-                if (delta >= 1000) { // Actualizar FPS cada segundo
-                    currentFPS = Math.round((frameCount * 1000) / delta);
-                    $('#fps-counter').text(currentFPS + ' FPS');
-                    frameCount = 0;
-                    lastFrameTime = now;
-                }
-                
-                frameCount++;
-            }
-            
-            // Actualizar la vista
-            function updateView() {
-                const now = Date.now();
-                const video = document.getElementById('video-feed');
-                
-                // Forzar actualización de la imagen para evitar caché
-                video.src = '{{ url_for("video_feed") }}?t=' + now;
-                
-                // Verificar si la imagen se cargó correctamente
-                video.onload = function() {
-                    updateConnectionStatus(true);
-                    updateFPS();
-                    
-                    // Actualizar cada 100ms (10 FPS para las actualizaciones de estado)
-                    if (now - lastUpdate > 100) {
-                        updateHistory();
-                        lastUpdate = now;
-                    }
-                    
-                    // Reintentar si la conexión se perdió
-                    if (!connectionOk && reconnectAttempts < maxReconnectAttempts) {
-                        reconnectAttempts++;
-                        setTimeout(updateView, 1000);
-                    }
-                };
-                
-                video.onerror = function() {
-                    updateConnectionStatus(false);
-                    
-                    // Reintentar conexión
-                    if (reconnectAttempts < maxReconnectAttempts) {
-                        reconnectAttempts++;
-                        setTimeout(updateView, 1000);
-                    } else if (reconnectAttempts === maxReconnectAttempts) {
-                        $('#connection-status span:last').text('Error de conexión. Recargue la página para reintentar.');
-                        reconnectAttempts++; // Evitar múltiples mensajes
-                    }
-                };
-            }
-            
-            // Actualizar historial y letra actual
-            function updateHistory() {
-                if (!connectionOk) return;
-                
-                fetch('/history')
-                    .then(response => {
-                        if (!response.ok) throw new Error('Error en la respuesta');
-                        return response.json();
-                    })
-                    .then(data => {
-                        const historyDiv = $('#history');
-                        const currentLetter = $('#current-letter');
-                        const confidenceBar = $('#confidence-bar');
-                        const confidenceText = $('#confidence');
-                        
-                        // Actualizar letra actual
-                        if (data.current_letter) {
-                            currentLetter.text(data.current_letter.letter);
-                            const confidence = Math.round(data.current_letter.confidence * 100);
-                            confidenceBar.css('width', confidence + '%')
-                                .removeClass('bg-danger bg-warning bg-success')
-                                .addClass(confidence > 70 ? 'bg-success' : (confidence > 40 ? 'bg-warning' : 'bg-danger'));
-                            confidenceText.text('Confianza: ' + confidence + '%');
-                        }
-                        
-                        // Actualizar historial
-                        if (data.history && data.history.length > 0) {
-                            historyDiv.html(data.history.map((item, index) => 
-                                `<span class="badge ${index === data.history.length - 1 ? 'bg-primary' : 'bg-secondary'} me-1 mb-1">
-                                    ${item.letter} <small>${Math.round(item.confidence * 100)}%</small>
-                                </span>`
-                            ).join(''));
-                        } else {
-                            historyDiv.html(`
-                                <div class="text-center text-muted py-3">
-                                    <i class="fas fa-hand-paper fa-2x mb-2"></i>
-                                    <p class="mb-0">Las letras detectadas aparecerán aquí</p>
-                                </div>
-                            `);
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error al actualizar el historial:', error);
-                        updateConnectionStatus(false);
-                    });
-            }
-            
-            // Inicializar cuando el documento esté listo
-            $(document).ready(function() {
-                // Iniciar actualización periódica
-                updateView();
-                setInterval(updateView, 100);
-                
-                // Configurar tooltips de Bootstrap
-                $('[data-bs-toggle="tooltip"]').tooltip();
-                
-                // Actualizar el historial inicial
-                updateHistory();
-                
-                // Limpiar historial
-                $('#clear-history').on('click', function() {
-                    fetch('/clear_history', { method: 'POST' })
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.success) {
-                                $('#history').html(`
-                                    <div class="text-center text-muted py-3">
-                                        <i class="fas fa-hand-paper fa-2x mb-2"></i>
-                                        <p class="mb-0">Las letras detectadas aparecerán aquí</p>
-                                    </div>
-                                `);
-                            }
-                        });
-                });
-                
-                // Copiar historial al portapapeles
-                $('#copy-history').on('click', function() {
-                    const historyText = [];
-                    $('.history-item .badge').each(function() {
-                        historyText.push($(this).text().trim());
-                    });
-                    
-                    if (historyText.length > 0) {
-                        navigator.clipboard.writeText(historyText.join(' ')).then(() => {
-                            const btn = $(this);
-                            const originalHtml = btn.html();
-                            btn.html('<i class="fas fa-check"></i>');
-                            setTimeout(() => btn.html(originalHtml), 2000);
-                        });
-                    }
-                });
-                
-                // Cambiar entre cámaras
-                $('#flip-camera').on('click', function() {
-                    fetch('/flip_camera', { method: 'POST' })
-                        .then(response => {
-                            if (response.ok) {
-                                location.reload();
-                            }
-                        });
-                });
-            });
-        </script>
 
-        // Manejar errores de conexión
-        function handleConnectionError() {
-            if (reconnectAttempts === 0) {
-                statusIndicator.classList.remove('status-active');
-                connectionStatusEl.innerHTML = `
-                    <span class="status-indicator bg-warning"></span>
-                    <span>Reconectando...</span>
-                `;
-            }
+  <div class="container">
+    <div class="text-center header mb-4">
+      <h1><i class="fas fa-hand-sparkles me-2"></i>Lengua de Señas</h1>
+      <p class="text-white-50">Reconocimiento de letras desde imágenes</p>
+    </div>
 
-            
-            reconnectAttempts++;
-            
-            if (reconnectAttempts >= maxReconnectAttempts) {
-                const statusEl = $('#connection-status');
-                statusEl.html(`
-                    <span class="status-indicator bg-danger"></span>
-                    <span>Error de conexión. Recargue la página.</span>
-                `);
-                return;
-            }
-            
-            // Reintentar después de un tiempo
-            setTimeout(updateView, 2000 * reconnectAttempts);
-        }
+    <div class="card p-4">
+      <div class="mb-3">
+        <label class="form-label">Selecciona una imagen o usa tu cámara:</label>
+        <input class="form-control" type="file" accept="image/*" onchange="handleImageUpload(event)">
+      </div>
 
-        // Manejar la tecla ESC para limpiar la letra actual
-        $(document).on('keydown', (e) => {
-            if (e.key === 'Escape') {
-                $('#current-letter').text('-');
-                $('#confidence-bar').css('width', '0%');
-                $('#confidence').text('Confianza: 0%');
-            }
+      <div class="text-center" id="loadingSpinner">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p class="mt-2">Analizando imagen...</p>
+      </div>
+
+      <div class="text-center">
+        <img id="preview" class="img-fluid border" />
+      </div>
+
+      <div id="result" class="mt-4"></div>
+    </div>
+  </div>
+
+  <script>
+    function handleImageUpload(event) {
+      const file = event.target.files[0];
+      const reader = new FileReader();
+      if (!file) return;
+
+      // Mostrar spinner
+      document.getElementById('result').innerHTML = "";
+      document.getElementById('loadingSpinner').style.display = 'block';
+
+      reader.onloadend = function () {
+        const img = document.getElementById('preview');
+        img.src = reader.result;
+        img.style.display = 'block';
+
+        eel.predict_letter(reader.result)(function (res) {
+          document.getElementById('loadingSpinner').style.display = 'none';
+
+          if (res.error) {
+            document.getElementById('result').innerHTML = `
+              <div class="alert alert-danger"><i class="fas fa-exclamation-circle me-2"></i>${res.error}</div>`;
+          } else {
+            let confidence = res.confidence;
+            let letter = res.letter;
+            let resultClass = confidence < 60 ? "result-low" : confidence < 85 ? "result-medium" : "result-high";
+
+            document.getElementById('result').innerHTML = `
+              <div class="result-box ${resultClass}">
+                <i class="fas fa-check-circle fa-lg mb-2"></i>
+                <h4>Letra Detectada: <strong>${letter}</strong></h4>
+                <p>Confiabilidad: <strong>${confidence}%</strong></p>
+              </div>`;
+          }
         });
-    </script>
+      };
+
+      reader.readAsDataURL(file);
+    }
+  </script>
+
 </body>
 </html>
