@@ -1,7 +1,8 @@
-Flask==3.0.3
-numpy>=1.24.0
-tensorflow>=2.15.0
-opencv-python>=4.8.0
-gunicorn>=21.2.0
-gevent>=23.7.0
-mediapipe>=0.10.0
+tensorflow==2.5.0
+numpy
+pandas
+Pillow
+scikit-learn
+pyinstaller
+eel
+
