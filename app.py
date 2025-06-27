@@ -7,8 +7,6 @@ from tensorflow.keras.models import load_model
 import os
 import sys
 # Cargar el modelo
-model = load_model('model/sign_language_model.h5')
-labels = [chr(i) for i in range(65, 91) if i not in [74, 90]]  # A-Z sin J ni Z
 
 if getattr(sys, 'frozen', False):
     try:
@@ -27,6 +25,9 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
 
     return os.path.join(base_path, relative_path)
+
+model = load_model(resource_path('model/sign_language_model.h5'), compile=False)
+labels = [chr(i) for i in range(65, 91) if i not in [74, 90]]  # A-Z sin J ni Z
 
 # Iniciar Eel
 eel.init(resource_path('templates'))
