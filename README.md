@@ -64,7 +64,7 @@ A Eel web application that recognizes sign language letters from the MNIST datas
 
 1. Compile the Eel application:
    ```bash
-   pyinstaller --noconfirm --windowed --icon=icon.ico app.py --add-data "templates;templates"
+   pyinstaller --noconfirm --windowed app.py --add-data "templates;templates"
    ```
 
 2. The executable will be created in the `dist` folder.
